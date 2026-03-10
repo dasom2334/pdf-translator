@@ -19,7 +19,7 @@ For parallel execution, use separate terminals with `claude --worktree`.
 
 Implement PdfService and PdfController with actual logic.
 
-1. Install dependencies: `npm install pdf-parse multer @types/multer class-validator class-transformer`
+1. Install dependencies: `pnpm add pdf-parse multer @types/multer class-validator class-transformer`
 2. Implement PdfService:
    - `extractText(fileBuffer: Buffer): Promise<string>` — uses pdf-parse
    - `extractTextByPages(fileBuffer: Buffer): Promise<string[]>` — page-level extraction
@@ -27,12 +27,14 @@ Implement PdfService and PdfController with actual logic.
 3. Implement PdfController:
    - `POST /pdf/translate` — FileInterceptor('file'), calls PdfService.extractText(), then TranslationServiceFactory.getService(), then translate()
    - `GET /pdf/supported-languages` — accepts optional `provider` query param
-4. Apply class-validator decorators to DTOs (@IsString, @IsOptional, @IsEnum)
+4. Apply class-validator decorators to DTOs — replace `!` assertions with proper decorators:
+   - `TranslatePdfDto`: `@IsString() sourceLang`, `@IsString() targetLang`, `@IsOptional() @IsEnum(TranslationProvider) provider?`
+   - `TranslationResultDto`: `@IsString()` on all string fields, `@IsEnum(TranslationProvider) provider`
 5. Add `ValidationPipe({ transform: true })` to main.ts
 6. Write tests:
    - PdfService: valid PDF buffer → text, empty buffer → error, non-PDF → error
    - PdfController: mock TranslationServiceFactory, test request/response flow
-7. Verify: `npm run lint` + `npm test` pass
+7. Verify: `pnpm run lint` + `pnpm test` pass
 8. Commit, push, and create PR
 
 ---
@@ -44,7 +46,7 @@ Implement PdfService and PdfController with actual logic.
 
 Implement DeepLTranslationService and TranslationServiceFactory with actual logic.
 
-1. Install dependency: `npm install deepl-node`
+1. Install dependency: `pnpm add deepl-node`
 2. Implement DeepLTranslationService:
    - Read DEEPL_API_KEY from ConfigService
    - `translate()` — uses deepl.Translator.translateText(), maps language codes
@@ -62,7 +64,7 @@ Implement DeepLTranslationService and TranslationServiceFactory with actual logi
 6. Write tests:
    - DeepLTranslationService: mock deepl SDK, test translate/batch/languages, error cases
    - TranslationServiceFactory: DEEPL → correct instance, GOOGLE/LLM → NotImplementedException, invalid → BadRequestException
-7. Verify: `npm run lint` + `npm test` pass
+7. Verify: `pnpm run lint` + `pnpm test` pass
 8. Commit, push, and create PR
 
 ---

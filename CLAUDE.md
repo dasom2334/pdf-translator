@@ -2,7 +2,7 @@
 
 ## Overview
 CLI backend that translates PDF files via adapter pattern.
-- NestJS (Node 18.18.0, managed by mise.toml)
+- NestJS 11 (Node 22 LTS, pnpm 9, managed by mise.toml)
 - No frontend. CLI usage only (curl/Postman).
 - Swappable translation services: DeepL, Google, LLM
 
@@ -45,7 +45,7 @@ GITHUB_REPO=
 ## Git Conventions
 - Branch: `feature/[task-name]`
 - Commits: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`)
-- Always pass `npm run lint` + `npm test` before PR
+- Always pass `pnpm run lint` + `pnpm test` before PR
 
 ## Parallel Work Rules
 - Each agent modifies ONLY files within its ownership scope
