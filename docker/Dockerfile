@@ -15,5 +15,7 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/dist ./dist
+RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001 -G nodejs
+USER nestjs
 EXPOSE 3000
 CMD ["node", "dist/main"]
