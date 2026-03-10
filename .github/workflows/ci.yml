@@ -22,19 +22,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
 
       - name: Install dependencies
-        if: hashFiles('package.json') != ''
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        if: hashFiles('package.json') != ''
         run: pnpm run lint
 
       - name: Test
-        if: hashFiles('package.json') != ''
         run: pnpm test
 
       - name: Build
-        if: hashFiles('package.json') != ''
         run: pnpm run build
