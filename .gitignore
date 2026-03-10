@@ -28,6 +28,11 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Claude Code
 .claude/worktrees/
+
+# Docker
+docker/tmp/
