@@ -36,6 +36,28 @@ describe('DeepLTranslationService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('onModuleInit', () => {
+    it('should throw Error when DEEPL_API_KEY is not configured', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DeepLTranslationService,
+          {
+            provide: ConfigService,
+            useValue: { get: jest.fn().mockReturnValue(undefined) },
+          },
+        ],
+      }).compile();
+
+      const uninitializedService = module.get<DeepLTranslationService>(
+        DeepLTranslationService,
+      );
+      expect(() => uninitializedService.onModuleInit()).toThrow(Error);
+      expect(() => uninitializedService.onModuleInit()).toThrow(
+        'DEEPL_API_KEY is not configured',
+      );
+    });
+  });
+
   describe('translate', () => {
     it('should return translated text', async () => {
       mockTranslator.translateText.mockResolvedValue({ text: '번역된 텍스트' });

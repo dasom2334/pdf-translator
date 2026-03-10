@@ -20,10 +20,7 @@ export class DeepLTranslationService
   onModuleInit() {
     const apiKey = this.configService.get<string>('DEEPL_API_KEY');
     if (!apiKey) {
-      throw new TranslationException(
-        'DEEPL_API_KEY is not configured',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new Error('DEEPL_API_KEY is not configured');
     }
     this.translator = new deepl.Translator(apiKey);
   }
