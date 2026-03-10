@@ -47,6 +47,13 @@ GITHUB_REPO=
 - Commits: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`)
 - Always pass `pnpm run lint` + `pnpm test` before PR
 
+## Exception Handling Rules
+- `BadRequestException` — 잘못된 입력 (빈 파일, 잘못된 언어 코드 등)
+- `InternalServerErrorException` — 내부 처리 실패 (PDF 파싱 오류 등)
+- `TranslationException` — 외부 번역 API 오류 (항상 HttpStatus.BAD_GATEWAY)
+- 앱 시작 불가 상황(API 키 누락 등) — `throw new Error(...)` (NestJS 부트스트랩 중단 목적)
+- NestJS 기본 예외(`HttpException` 직접 사용)는 금지 — 위 분류 중 하나를 사용할 것
+
 ## Parallel Work Rules
 - Each agent modifies ONLY files within its ownership scope
 - `.env` is user-owned — NO agent may modify it
