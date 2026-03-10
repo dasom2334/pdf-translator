@@ -11,6 +11,11 @@ import { TranslationServiceFactory } from './factories/translation-service.facto
     LlmTranslationService,
     TranslationServiceFactory,
   ],
-  exports: [TranslationServiceFactory],
+  exports: [
+    TranslationServiceFactory,
+    DeepLTranslationService,
+    GoogleTranslationService,
+    LlmTranslationService,
+  ],
 })
 export class TranslationModule {}
