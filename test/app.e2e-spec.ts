@@ -20,7 +20,7 @@ describe('PDF Translator (e2e)', () => {
     await app.close();
   });
 
-  it('GET /pdf/supported-languages - should return 200', () => {
+  it('GET /pdf/supported-languages - should return 500 (not implemented)', () => {
     return request(app.getHttpServer())
       .get('/pdf/supported-languages')
       .expect(500); // Not implemented yet — verifies endpoint exists
