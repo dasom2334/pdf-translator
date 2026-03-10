@@ -15,4 +15,4 @@ services:
       - PORT=3000
     env_file:
       - ../.env
-    command: npm run start:dev
+    command: pnpm run start:dev

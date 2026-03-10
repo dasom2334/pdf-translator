@@ -4,7 +4,8 @@ A CLI backend service for translating PDF files using swappable translation adap
 
 ## Tech Stack
 
-- **Runtime:** Node.js 18.18.0 (managed by mise)
+- **Runtime:** Node.js 22.x LTS (managed by mise)
+- **Package Manager:** pnpm 9
 - **Framework:** NestJS with strict TypeScript
 - **Translation:** Adapter pattern supporting DeepL, Google Translate, LLM
 
@@ -12,7 +13,7 @@ A CLI backend service for translating PDF files using swappable translation adap
 
 ### Prerequisites
 
-Install [mise](https://mise.jdx.dev/) for Node version management:
+Install [mise](https://mise.jdx.dev/) for Node and pnpm version management:
 
 ```bash
 mise install
@@ -22,14 +23,14 @@ mise install
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Copy environment variables
 cp .env.example .env
 # Edit .env with your API keys
 
 # Start development server
-npm run start:dev
+pnpm run start:dev
 ```
 
 The API will be available at `http://localhost:3000`.
