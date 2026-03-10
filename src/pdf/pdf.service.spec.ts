@@ -7,17 +7,25 @@ import { PdfService } from './pdf.service';
 import { TranslationServiceFactory } from '../translation/factories/translation-service.factory';
 import { TranslationProvider } from '../common/enums/translation-provider.enum';
 
-jest.mock('pdf-parse', () => jest.fn());
+const mockGetText = jest.fn();
+const mockDestroy = jest.fn();
+
+jest.mock('pdf-parse', () => ({
+  PDFParse: jest.fn().mockImplementation(() => ({
+    getText: mockGetText,
+    destroy: mockDestroy,
+  })),
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParseMock = require('pdf-parse') as jest.MockedFunction<
-  (buffer: Buffer) => Promise<{ text: string }>
+const MockPDFParse = require('pdf-parse').PDFParse as jest.MockedClass<
+  new (params: object) => { getText: jest.Mock; destroy: jest.Mock }
 >;
 
 const mockTranslationService = {
-  translate: jest.fn().mockResolvedValue('translated text'),
-  translateBatch: jest.fn().mockResolvedValue(['translated']),
-  getSupportedLanguages: jest.fn().mockResolvedValue(['en', 'ko']),
+  translate: jest.fn(),
+  translateBatch: jest.fn(),
+  getSupportedLanguages: jest.fn(),
 };
 
 const mockTranslationServiceFactory = {
@@ -41,7 +49,21 @@ describe('PdfService', () => {
     service = module.get<PdfService>(PdfService);
     jest.clearAllMocks();
     // Restore default behavior after clearAllMocks
-    pdfParseMock.mockResolvedValue({ text: 'extracted text' });
+    mockGetText.mockResolvedValue({
+      text: 'extracted text',
+      pages: [{ num: 1, text: 'page 1 text' }],
+      total: 1,
+    });
+    mockDestroy.mockResolvedValue(undefined);
+    MockPDFParse.mockImplementation(() => ({
+      getText: mockGetText,
+      destroy: mockDestroy,
+    }));
+    mockTranslationService.translate.mockResolvedValue('translated text');
+    mockTranslationService.getSupportedLanguages.mockResolvedValue(['en', 'ko']);
+    mockTranslationServiceFactory.getService.mockReturnValue(
+      mockTranslationService,
+    );
   });
 
   it('should be defined', () => {
@@ -71,7 +93,7 @@ describe('PdfService', () => {
     });
 
     it('should throw InternalServerErrorException for corrupt PDF', async () => {
-      pdfParseMock.mockRejectedValue(new Error('corrupt PDF'));
+      mockGetText.mockRejectedValue(new Error('corrupt PDF'));
 
       const fakePdf = Buffer.concat([
         Buffer.from([0x25, 0x50, 0x44, 0x46]),
@@ -83,7 +105,7 @@ describe('PdfService', () => {
     });
 
     it('should include original error message in InternalServerErrorException', async () => {
-      pdfParseMock.mockRejectedValue(new Error('specific parse error'));
+      mockGetText.mockRejectedValue(new Error('specific parse error'));
 
       const fakePdf = Buffer.concat([
         Buffer.from([0x25, 0x50, 0x44, 0x46]),
@@ -97,11 +119,6 @@ describe('PdfService', () => {
 
   describe('translatePdf', () => {
     it('should return TranslationResultDto', async () => {
-      mockTranslationServiceFactory.getService.mockReturnValue(
-        mockTranslationService,
-      );
-      mockTranslationService.translate.mockResolvedValue('translated text');
-
       const validPdfBuffer = Buffer.concat([
         Buffer.from([0x25, 0x50, 0x44, 0x46]),
         Buffer.from('-1.4'),
@@ -123,11 +140,6 @@ describe('PdfService', () => {
     });
 
     it('should use DEEPL as default provider when none specified', async () => {
-      mockTranslationServiceFactory.getService.mockReturnValue(
-        mockTranslationService,
-      );
-      mockTranslationService.translate.mockResolvedValue('translated');
-
       const validPdfBuffer = Buffer.concat([
         Buffer.from([0x25, 0x50, 0x44, 0x46]),
         Buffer.from('-1.4'),
@@ -145,13 +157,6 @@ describe('PdfService', () => {
 
   describe('getSupportedLanguages', () => {
     it('should return languages from translation service', async () => {
-      mockTranslationServiceFactory.getService.mockReturnValue(
-        mockTranslationService,
-      );
-      mockTranslationService.getSupportedLanguages.mockResolvedValue([
-        'en',
-        'ko',
-      ]);
       const result = await service.getSupportedLanguages(
         TranslationProvider.DEEPL,
       );
@@ -162,14 +167,6 @@ describe('PdfService', () => {
     });
 
     it('should use DEEPL as default provider when none specified', async () => {
-      mockTranslationServiceFactory.getService.mockReturnValue(
-        mockTranslationService,
-      );
-      mockTranslationService.getSupportedLanguages.mockResolvedValue([
-        'en',
-        'ko',
-      ]);
-
       await service.getSupportedLanguages();
 
       expect(mockTranslationServiceFactory.getService).toHaveBeenCalledWith(
