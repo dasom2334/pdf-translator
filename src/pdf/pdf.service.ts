@@ -3,7 +3,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import * as pdfParse from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import { TranslationServiceFactory } from '../translation/factories/translation-service.factory';
 import { TranslatePdfDto } from './dto/translate-pdf.dto';
 import { TranslationResultDto } from './dto/translation-result.dto';
@@ -36,14 +36,22 @@ export class PdfService {
       throw new BadRequestException('File buffer is empty');
     }
     // Check PDF magic bytes
-    if (fileBuffer.slice(0, 4).toString() !== '%PDF') {
+    const magic = fileBuffer.slice(0, 4);
+    if (
+      magic[0] !== 0x25 ||
+      magic[1] !== 0x50 ||
+      magic[2] !== 0x44 ||
+      magic[3] !== 0x46
+    ) {
       throw new BadRequestException('File is not a valid PDF');
     }
     try {
       const data = (await pdfParse(fileBuffer)) as PdfData;
       return data.text;
-    } catch {
-      throw new InternalServerErrorException('Failed to extract text from PDF');
+    } catch (error) {
+      throw new InternalServerErrorException(
+        `Failed to extract text from PDF: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -51,7 +59,13 @@ export class PdfService {
     if (!fileBuffer || fileBuffer.length === 0) {
       throw new BadRequestException('File buffer is empty');
     }
-    if (fileBuffer.slice(0, 4).toString() !== '%PDF') {
+    const magic2 = fileBuffer.slice(0, 4);
+    if (
+      magic2[0] !== 0x25 ||
+      magic2[1] !== 0x50 ||
+      magic2[2] !== 0x44 ||
+      magic2[3] !== 0x46
+    ) {
       throw new BadRequestException('File is not a valid PDF');
     }
     try {
@@ -68,9 +82,9 @@ export class PdfService {
         },
       });
       return pages;
-    } catch {
+    } catch (error) {
       throw new InternalServerErrorException(
-        'Failed to extract text by pages from PDF',
+        `Failed to extract text by pages from PDF: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

@@ -6,6 +6,8 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  ParseFilePipe,
+  MaxFileSizeValidator,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PdfService } from './pdf.service';
@@ -18,9 +20,22 @@ export class PdfController {
   constructor(private readonly pdfService: PdfService) {}
 
   @Post('translate')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE ?? '10485760') },
+    }),
+  )
   async translatePdf(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({
+            maxSize: parseInt(process.env.MAX_FILE_SIZE ?? '10485760'),
+          }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
     @Body() dto: TranslatePdfDto,
   ): Promise<TranslationResultDto> {
     return this.pdfService.translatePdf(file, dto);
