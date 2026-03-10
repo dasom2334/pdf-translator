@@ -7,9 +7,20 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  lint-infra:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Validate Dockerfile
+        run: docker build --check -f docker/Dockerfile . || true
+
+      - name: Validate docker-compose
+        run: docker compose -f docker/docker-compose.yml config --quiet
+
+  test-node:
+    runs-on: ubuntu-latest
+    if: hashFiles('pnpm-lock.yaml') != ''
     steps:
       - uses: actions/checkout@v4
 
