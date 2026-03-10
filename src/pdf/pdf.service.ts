@@ -3,7 +3,11 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import pdfParse from 'pdf-parse';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (
+  buffer: Buffer,
+  options?: object,
+) => Promise<{ text: string; numpages: number }>;
 import { TranslationServiceFactory } from '../translation/factories/translation-service.factory';
 import { TranslatePdfDto } from './dto/translate-pdf.dto';
 import { TranslationResultDto } from './dto/translation-result.dto';
