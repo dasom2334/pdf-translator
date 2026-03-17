@@ -46,6 +46,12 @@ export interface PdfGenerateOptions {
 }
 ```
 
+### DI Tokens
+```typescript
+export const PDF_EXTRACTOR = Symbol('PDF_EXTRACTOR');
+export const PDF_GENERATOR = Symbol('PDF_GENERATOR');
+```
+
 ### CLI 사용법
 ```bash
 pnpm run cli -- translate \
@@ -129,6 +135,6 @@ assets/
 - 공유 인터페이스/enum 변경 시 이 CLAUDE.md도 함께 업데이트
 
 ## Phase Roadmap
-- Phase 0: Project structure and boilerplate
+- Phase 0: 프로젝트 구조 및 보일러플레이트
 - Phase 1: PDF 추출 + PDF 생성 + MyMemory 번역 + CLI 커맨드
 - Phase 2: Gemini LLM 어댑터, 용어집, 페이지 범위, 설정파일, 바이링구얼 PDF

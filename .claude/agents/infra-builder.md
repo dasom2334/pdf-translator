@@ -20,7 +20,7 @@ You ONLY create and modify:
 - `src/**`, `test/**`
 - `package.json`
 - `tsconfig*.json`, `nest-cli.json`
-- `.eslintrc*`, `.prettierrc`
+- `eslint.config.mjs`, `.prettierrc`
 - `.env`
 - `assets/**`
 

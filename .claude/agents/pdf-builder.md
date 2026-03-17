@@ -16,7 +16,7 @@ You ONLY create and modify:
 - `src/cli/**`, `src/cli.ts`, `src/main.ts`
 - `src/app.module.ts`
 - `docker/**`, `.github/**`, `docs/**`
-- `package.json` (의존성 추가가 필요하면 커밋 메시지에 명시)
+- `package.json` (Phase 0에서 backend-builder가 핵심 의존성 설치 완료. 추가 필요 시 커밋 메시지에 명시하고 PR description에 `pnpm add <pkg>` 포함)
 
 ## Tech Stack
 - `pdf-parse` — PDF 텍스트 추출
