@@ -1,6 +1,7 @@
 ---
 name: infra-builder
-description: "Phase 0 전용: Docker, CI/CD, 문서, 환경설정. src/ 수정 금지."
+description: "Docker, CI/CD, 문서, 환경설정 관리. src/ 수정 금지."
+isolation: worktree
 ---
 
 You are the infra-builder agent for the PDF Translator project.

@@ -6,8 +6,14 @@ description: "Phase 1: 핵심 기능 구현. PDF 추출/생성, MyMemory 번역,
 
 > **전제조건:** Phase 0 PR이 main에 머지된 상태여야 함.
 
-pdf-builder와 translation-builder를 **병렬** 실행 후,
-cli-builder를 **순차** 실행.
+## 실행 방법
+
+**Step 1 — 병렬:** 하나의 메시지에서 동시 실행:
+1. `Agent(subagent_type="pdf-builder", isolation="worktree", prompt="Phase 1 pdf-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
+2. `Agent(subagent_type="translation-builder", isolation="worktree", prompt="Phase 1 translation-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
+
+**Step 2 — 순차:** Step 1의 두 에이전트가 모두 완료되고 PR 머지 후:
+3. `Agent(subagent_type="cli-builder", isolation="worktree", prompt="Phase 1 cli-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
 
 ---
 
@@ -41,40 +47,17 @@ cli-builder를 **순차** 실행.
    - 출력 디렉토리 자동 생성 (`fs.mkdir({ recursive: true })`)
    - A4 크기 (595.28 x 841.89 pt), margin 50pt
 
-4. **PdfController 구현** (`src/pdf/pdf.controller.ts`):
-   - `POST /pdf/translate`:
-     ```typescript
-     @UseInterceptors(FileInterceptor('file', {
-       limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE ?? '10485760') },
-     }))
-     async translatePdf(
-       @UploadedFile(new ParseFilePipe({
-         validators: [new MaxFileSizeValidator({
-           maxSize: parseInt(process.env.MAX_FILE_SIZE ?? '10485760')
-         })]
-       }))
-       file: Express.Multer.File,
-       @Body() dto: TranslatePdfDto,
-     )
-     ```
-   - `GET /pdf/supported-languages`: optional `provider` query param
-
-5. DTO에 class-validator 데코레이터:
-   - TranslatePdfDto: `@IsString @IsNotEmpty @Length(2,5)` sourceLang/targetLang, `@IsOptional @IsEnum(TranslationProvider)` provider
-   - TranslationResultDto: 적절한 데코레이터
-
-6. PdfModule 와이어링:
+4. PdfModule 와이어링:
    - `{ provide: PDF_EXTRACTOR, useExisting: PdfExtractorService }`
    - `{ provide: PDF_GENERATOR, useExisting: PdfGeneratorService }`
    - 토큰 export
 
-7. 유닛 테스트 — happy path + 에러 케이스:
+5. 유닛 테스트 — happy path + 에러 케이스:
    - PdfExtractorService: valid PDF → text, empty → error, non-PDF → error
    - PdfGeneratorService: text → PDF 파일 생성, 멀티페이지, 커스텀 폰트
-   - PdfController: mock service, endpoint 테스트
 
-8. `pnpm run lint` + `pnpm test` 통과
-9. Commit, push, PR 생성
+6. `pnpm run lint` + `pnpm test` 통과
+7. Commit, push, PR 생성
 
 ---
 
@@ -114,7 +97,7 @@ cli-builder를 **순차** 실행.
 ### Sub-agent 3: @cli-builder (순차 — Sub-agent 1, 2 완료 후)
 
 **Branch:** `feature/cli-integration`
-**소유 파일:** `src/cli/**`, `src/cli.ts`, `src/app.module.ts`, `src/main.ts`, `package.json` (scripts/bin만), `test/**`
+**소유 파일:** `src/cli/**`, `src/cli.ts`, `src/app.module.ts`, `src/main.ts`, `package.json` (scripts/bin만), `test/app.e2e-spec.ts`
 
 > Sub-agent 1, 2의 PR이 머지된 후 실행.
 
@@ -148,7 +131,7 @@ cli-builder를 **순차** 실행.
 
 7. 유닛 테스트: mock 주입, 전체 플로우 테스트
 
-8. E2E 테스트 (`test/app.e2e-spec.ts`): HTTP 엔드포인트 검증
+8. E2E 테스트 (`test/app.e2e-spec.ts`): CLI 커맨드 통합 검증
 
 9. `pnpm run lint` + `pnpm test` 통과
 10. Commit, push, PR 생성
@@ -158,5 +141,9 @@ cli-builder를 **순차** 실행.
 ## Done Criteria
 - 3개 PR 생성 완료
 - `pnpm run cli -- translate -i sample.pdf -t en` 실행 시 번역된 PDF 생성
-- `curl http://localhost:3000/pdf/supported-languages` 응답
 - 모든 테스트 통과
+
+## 실패 시 대응
+- lint/test 실패 → 에이전트가 자체 수정 후 재시도 (최대 3회)
+- PR 생성 실패 → 브랜치 push 확인 후 수동 `gh pr create`
+- 파일 소유권 충돌 발견 → 해당 에이전트 중단, 사용자에게 보고

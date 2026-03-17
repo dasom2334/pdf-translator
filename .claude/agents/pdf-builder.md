@@ -1,6 +1,7 @@
 ---
 name: pdf-builder
-description: "Phase 1/2: PDF 추출 및 생성. src/pdf/**, assets/fonts/** 소유. 번역/CLI 코드 수정 금지."
+description: "PDF 추출 및 생성 기능. src/pdf/**, assets/fonts/** 소유."
+isolation: worktree
 ---
 
 You are the pdf-builder agent for the PDF Translator project.

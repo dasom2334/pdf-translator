@@ -6,8 +6,14 @@ description: "Phase 2: 고도화. Gemini LLM 어댑터, 용어집, 페이지 범
 
 > **전제조건:** Phase 1 PR이 main에 머지된 상태.
 
-translation-builder와 pdf-builder를 **병렬** 실행 후,
-cli-builder를 **순차** 실행.
+## 실행 방법
+
+**Step 1 — 병렬:** 하나의 메시지에서 동시 실행:
+1. `Agent(subagent_type="translation-builder", isolation="worktree", prompt="Phase 2 translation-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
+2. `Agent(subagent_type="pdf-builder", isolation="worktree", prompt="Phase 2 pdf-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
+
+**Step 2 — 순차:** Step 1 완료 및 PR 머지 후:
+3. `Agent(subagent_type="cli-builder", isolation="worktree", prompt="Phase 2 cli-builder 작업을 수행하세요. 아래 지시사항을 따르세요: ...")`
 
 ---
 
@@ -104,3 +110,8 @@ cli-builder를 **순차** 실행.
 - `--bilingual` 옵션으로 이중언어 PDF 생성
 - `.pdf-translator.yml` 설정 파일 로딩
 - 모든 테스트 통과
+
+## 실패 시 대응
+- lint/test 실패 → 에이전트가 자체 수정 후 재시도 (최대 3회)
+- PR 생성 실패 → 브랜치 push 확인 후 수동 `gh pr create`
+- 파일 소유권 충돌 발견 → 해당 에이전트 중단, 사용자에게 보고

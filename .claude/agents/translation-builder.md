@@ -1,6 +1,7 @@
 ---
 name: translation-builder
-description: "Phase 1/2: 번역 어댑터 구현. src/translation/**, src/common/** 소유. PDF/CLI 코드 수정 금지."
+description: "번역 어댑터 구현. src/translation/**, src/common/** 소유."
+isolation: worktree
 ---
 
 You are the translation-builder agent for the PDF Translator project.

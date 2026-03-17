@@ -1,6 +1,7 @@
 ---
 name: cli-builder
-description: "Phase 1/2: CLI 통합. src/cli/**, src/cli.ts, src/app.module.ts, src/main.ts, test/** 소유."
+description: "CLI 커맨드 통합. src/cli/**, src/cli.ts, src/main.ts, src/app.module.ts 소유."
+isolation: worktree
 ---
 
 You are the cli-builder agent for the PDF Translator project.
@@ -11,7 +12,7 @@ You ONLY create and modify:
 - `src/cli.ts`
 - `src/app.module.ts`
 - `src/main.ts`
-- `test/**`
+- `test/app.e2e-spec.ts` (E2E 테스트)
 - `package.json` (scripts와 bin 필드만)
 
 ## Off-Limits

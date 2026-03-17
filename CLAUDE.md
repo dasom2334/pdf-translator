@@ -3,9 +3,9 @@
 ## Overview
 CLI 프로그램: PDF 파일의 텍스트를 추출 → 번역 → 새 PDF로 생성.
 - NestJS 11 (Node 22 LTS, pnpm 9, mise.toml)
-- CLI: nest-commander
-- HTTP API도 병행 제공 (curl/Postman)
+- CLI: nest-commander (핵심 인터페이스)
 - 어댑터 패턴으로 번역 서비스 교체 가능
+- HTTP API는 향후 확장 예정 (Phase 3+)
 
 ## Shared Contracts
 
@@ -57,32 +57,32 @@ pnpm run cli -- translate \
   [--font <path-to-ttf>]
 ```
 
-### API Endpoints
-- `POST /pdf/translate` — Upload PDF and request translation
-- `GET /pdf/supported-languages` — List supported languages
+### API Endpoints (Phase 3+ 예정)
+- `POST /pdf/translate` — PDF 업로드 및 번역 요청
+- `GET /pdf/supported-languages` — 지원 언어 목록
 
 ### Environment Variables
 ```
-PORT=3000
 NODE_ENV=development
 UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=10485760
 GEMINI_API_KEY=
+# PORT=3000              # 향후 HTTP API 용
 ```
 
 ## Directory Structure
 ```
 src/
-  main.ts                              # HTTP 엔트리포인트
-  cli.ts                               # CLI 엔트리포인트
-  app.module.ts                        # HTTP 루트 모듈
+  main.ts                              # HTTP 엔트리포인트 (Phase 3+)
+  cli.ts                               # CLI 엔트리포인트 (핵심)
+  app.module.ts                        # 루트 모듈
   cli/
     cli.module.ts                      # CLI 루트 모듈
     commands/
       translate.command.ts             # translate CLI 커맨드
   pdf/
     pdf.module.ts
-    pdf.controller.ts
+    pdf.controller.ts                  # Phase 3+
     interfaces/
       pdf-extractor.interface.ts
       pdf-generator.interface.ts
@@ -123,10 +123,10 @@ assets/
 - 앱 시작 불가 상황(API 키 누락 등) — `throw new Error(...)` (NestJS 부트스트랩 중단 목적)
 - NestJS 기본 예외(`HttpException` 직접 사용)는 금지 — 위 분류 중 하나를 사용할 것
 
-## Parallel Work Rules
-- Each agent modifies ONLY files within its ownership scope
-- `.env` is user-owned — NO agent may modify it
-- When modifying shared interfaces/enums, update this CLAUDE.md accordingly
+## 병렬 작업 규칙
+- 각 에이전트는 자신의 소유 파일만 수정
+- `.env`는 사용자 소유 — 어떤 에이전트도 수정 금지
+- 공유 인터페이스/enum 변경 시 이 CLAUDE.md도 함께 업데이트
 
 ## Phase Roadmap
 - Phase 0: Project structure and boilerplate
