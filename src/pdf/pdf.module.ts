@@ -7,8 +7,10 @@ import { PDF_EXTRACTOR, PDF_GENERATOR } from './interfaces';
 @Module({
   controllers: [PdfController],
   providers: [
-    { provide: PDF_EXTRACTOR, useClass: PdfExtractorService },
-    { provide: PDF_GENERATOR, useClass: PdfGeneratorService },
+    PdfExtractorService,
+    PdfGeneratorService,
+    { provide: PDF_EXTRACTOR, useExisting: PdfExtractorService },
+    { provide: PDF_GENERATOR, useExisting: PdfGeneratorService },
   ],
   exports: [PDF_EXTRACTOR, PDF_GENERATOR],
 })
