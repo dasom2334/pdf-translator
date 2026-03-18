@@ -2,17 +2,21 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 import { ITranslationService } from '../interfaces/translation-service.interface';
 import { MyMemoryTranslationService } from '../services/mymemory-translation.service';
+import { GeminiTranslationService } from '../services/gemini-translation.service';
 
 @Injectable()
 export class TranslationServiceFactory {
-  constructor(private readonly myMemoryService: MyMemoryTranslationService) {}
+  constructor(
+    private readonly myMemoryService: MyMemoryTranslationService,
+    private readonly geminiService: GeminiTranslationService,
+  ) {}
 
   getService(provider: TranslationProvider): ITranslationService {
     switch (provider) {
       case TranslationProvider.MYMEMORY:
         return this.myMemoryService;
       case TranslationProvider.GEMINI:
-        throw new Error('Gemini provider not implemented — Phase 2');
+        return this.geminiService;
       default:
         throw new BadRequestException(`Unknown translation provider: ${provider as string}`);
     }

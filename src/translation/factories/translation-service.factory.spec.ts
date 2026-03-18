@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { TranslationServiceFactory } from './translation-service.factory';
 import { MyMemoryTranslationService } from '../services/mymemory-translation.service';
+import { GeminiTranslationService } from '../services/gemini-translation.service';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 
 describe('TranslationServiceFactory', () => {
@@ -12,6 +13,7 @@ describe('TranslationServiceFactory', () => {
       providers: [
         TranslationServiceFactory,
         { provide: MyMemoryTranslationService, useValue: {} },
+        { provide: GeminiTranslationService, useValue: {} },
       ],
     }).compile();
     factory = moduleRef.get(TranslationServiceFactory);
@@ -22,8 +24,9 @@ describe('TranslationServiceFactory', () => {
     expect(service).toBeDefined();
   });
 
-  it('should throw Error for GEMINI provider (Phase 2)', () => {
-    expect(() => factory.getService(TranslationProvider.GEMINI)).toThrow('Phase 2');
+  it('should return GeminiTranslationService for GEMINI provider', () => {
+    const service = factory.getService(TranslationProvider.GEMINI);
+    expect(service).toBeDefined();
   });
 
   it('should throw BadRequestException for unknown provider', () => {
