@@ -2,10 +2,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { MyMemoryTranslationService } from './mymemory-translation.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
-import axios from 'axios';
-
-jest.mock('axios');
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+import { mockedAxios } from '../../test/setup';
 
 describe('MyMemoryTranslationService', () => {
   let service: MyMemoryTranslationService;
@@ -22,10 +19,10 @@ describe('MyMemoryTranslationService', () => {
   describe('translate', () => {
     it('should translate text successfully', async () => {
       mockedAxios.get = jest.fn().mockResolvedValue({
-        data: { responseStatus: 200, responseData: { translatedText: '안녕하세요' } },
+        data: { responseStatus: 200, responseData: { translatedText: 'ìëíì¸ì' } },
       });
       const result = await service.translate('Hello', 'en', 'ko');
-      expect(result).toBe('안녕하세요');
+      expect(result).toBe('ìëíì¸ì');
     });
 
     it('should throw BadRequestException for empty text', async () => {
@@ -48,11 +45,11 @@ describe('MyMemoryTranslationService', () => {
   describe('translateBatch', () => {
     it('should translate multiple texts', async () => {
       mockedAxios.get = jest.fn().mockResolvedValue({
-        data: { responseStatus: 200, responseData: { translatedText: '번역됨' } },
+        data: { responseStatus: 200, responseData: { translatedText: 'ë²ì­ë¨' } },
       });
       const result = await service.translateBatch(['Hello', 'World'], 'en', 'ko');
       expect(result).toHaveLength(2);
-      expect(result[0]).toBe('번역됨');
+      expect(result[0]).toBe('ë²ì­ë¨');
     });
   });
 
