@@ -43,7 +43,7 @@ describe('PdfExtractorService', () => {
   });
 
   describe('extractTextByPages', () => {
-    it('should extract text by pages', async () => {
+    it('should extract text by pages without page range', async () => {
       const validPdf = Buffer.concat([VALID_PDF_MAGIC, Buffer.alloc(100)]);
       const result = await service.extractTextByPages(validPdf);
       expect(Array.isArray(result)).toBe(true);
@@ -56,6 +56,51 @@ describe('PdfExtractorService', () => {
 
     it('should throw BadRequestException for non-PDF file', async () => {
       await expect(service.extractTextByPages(Buffer.from('not a pdf'))).rejects.toThrow(BadRequestException);
+    });
+
+    it('should filter pages by page range', async () => {
+      const validPdf = Buffer.concat([VALID_PDF_MAGIC, Buffer.alloc(100)]);
+      const result = await service.extractTextByPages(validPdf, '1');
+      expect(Array.isArray(result)).toBe(true);
+    });
+  });
+
+  describe('parsePageRange', () => {
+    it('should parse single page number', () => {
+      const result = service.parsePageRange('1', 5);
+      expect(result).toEqual([0]);
+    });
+
+    it('should parse page range with dash', () => {
+      const result = service.parsePageRange('1-3', 5);
+      expect(result).toEqual([0, 1, 2]);
+    });
+
+    it('should parse mixed ranges', () => {
+      const result = service.parsePageRange('1-2,4,6-7', 10);
+      expect(result).toEqual([0, 1, 3, 5, 6]);
+    });
+
+    it('should clamp range to total pages', () => {
+      const result = service.parsePageRange('3-10', 5);
+      expect(result).toEqual([2, 3, 4]);
+    });
+
+    it('should skip pages beyond total pages', () => {
+      const result = service.parsePageRange('6', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('should throw BadRequestException for invalid range format', () => {
+      expect(() => service.parsePageRange('abc', 5)).toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for invalid dash range', () => {
+      expect(() => service.parsePageRange('5-2', 10)).toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for zero page number', () => {
+      expect(() => service.parsePageRange('0', 5)).toThrow(BadRequestException);
     });
   });
 });

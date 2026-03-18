@@ -42,4 +42,56 @@ describe('PdfGeneratorService', () => {
     await service.generate('test', outputPath);
     expect(fs.existsSync(outputPath)).toBe(true);
   });
+
+  it('should apply glossary substitution when generating pages', async () => {
+    const outputPath = path.join(tmpDir, 'glossary.pdf');
+    await service.generateFromPages(['Hello World'], outputPath, {
+      glossary: { World: 'Earth' },
+    });
+    expect(fs.existsSync(outputPath)).toBe(true);
+  });
+
+  describe('generateBilingual', () => {
+    it('should generate a bilingual PDF with alternating original and translated pages', async () => {
+      const outputPath = path.join(tmpDir, 'bilingual.pdf');
+      await service.generateBilingual(
+        ['Original page 1', 'Original page 2'],
+        ['Translated page 1', 'Translated page 2'],
+        outputPath,
+      );
+      expect(fs.existsSync(outputPath)).toBe(true);
+      const bytes = fs.readFileSync(outputPath);
+      expect(bytes[0]).toBe(0x25);
+      expect(bytes[1]).toBe(0x50);
+      expect(bytes[2]).toBe(0x44);
+      expect(bytes[3]).toBe(0x46);
+    });
+
+    it('should create output directory if it does not exist', async () => {
+      const outputPath = path.join(tmpDir, 'sub', 'bilingual.pdf');
+      await service.generateBilingual(['Original'], ['Translated'], outputPath);
+      expect(fs.existsSync(outputPath)).toBe(true);
+    });
+
+    it('should handle mismatched page counts gracefully', async () => {
+      const outputPath = path.join(tmpDir, 'mismatched.pdf');
+      await service.generateBilingual(
+        ['Original page 1', 'Original page 2'],
+        ['Translated page 1'],
+        outputPath,
+      );
+      expect(fs.existsSync(outputPath)).toBe(true);
+    });
+
+    it('should apply glossary to translated pages', async () => {
+      const outputPath = path.join(tmpDir, 'bilingual-glossary.pdf');
+      await service.generateBilingual(
+        ['Original text'],
+        ['Translated text with term'],
+        outputPath,
+        { glossary: { term: 'replacement' } },
+      );
+      expect(fs.existsSync(outputPath)).toBe(true);
+    });
+  });
 });

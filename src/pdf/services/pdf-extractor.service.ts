@@ -14,7 +14,7 @@ export class PdfExtractorService implements IPdfExtractor {
     }
   }
 
-  async extractTextByPages(fileBuffer: Buffer): Promise<string[]> {
+  async extractTextByPages(fileBuffer: Buffer, pageRange?: string): Promise<string[]> {
     this.validatePdf(fileBuffer);
     const pages: string[] = [];
     try {
@@ -27,10 +27,44 @@ export class PdfExtractorService implements IPdfExtractor {
           });
         },
       });
-      return pages.length > 0 ? pages : [(await pdfParse(fileBuffer)).text];
+      const allPages = pages.length > 0 ? pages : [(await pdfParse(fileBuffer)).text];
+      if (!pageRange) {
+        return allPages;
+      }
+      const indices = this.parsePageRange(pageRange, allPages.length);
+      return indices.map((i) => allPages[i]);
     } catch (err) {
+      if (err instanceof BadRequestException) throw err;
       throw new InternalServerErrorException(`Failed to parse PDF pages: ${(err as Error).message}`);
     }
+  }
+
+  parsePageRange(pageRange: string, totalPages: number): number[] {
+    const indices: number[] = [];
+    const parts = pageRange.split(',');
+    for (const part of parts) {
+      const trimmed = part.trim();
+      if (trimmed.includes('-')) {
+        const [startStr, endStr] = trimmed.split('-');
+        const start = parseInt(startStr, 10);
+        const end = parseInt(endStr, 10);
+        if (isNaN(start) || isNaN(end) || start < 1 || end < start) {
+          throw new BadRequestException(`Invalid page range: "${trimmed}"`);
+        }
+        for (let i = start; i <= Math.min(end, totalPages); i++) {
+          indices.push(i - 1);
+        }
+      } else {
+        const page = parseInt(trimmed, 10);
+        if (isNaN(page) || page < 1) {
+          throw new BadRequestException(`Invalid page number: "${trimmed}"`);
+        }
+        if (page <= totalPages) {
+          indices.push(page - 1);
+        }
+      }
+    }
+    return indices;
   }
 
   private validatePdf(fileBuffer: Buffer): void {
