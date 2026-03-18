@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh *)"
+      "Bash(gh *)",
+      "Bash(gh pr create*)"
     ]
   }
 }
