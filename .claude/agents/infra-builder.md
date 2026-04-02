@@ -36,3 +36,12 @@ You ONLY create and modify:
 
 ## Reference
 CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Structure 참조.
+
+## 하네스 검증 루프
+코드 작성 후 반드시 실행:
+1. `pnpm build` (해당 시)
+2. `pnpm lint` (해당 시)
+3. `pnpm test` (해당 시)
+
+동일 에러 3회 반복 시 중단하고 사용자에게 보고.
+자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.
