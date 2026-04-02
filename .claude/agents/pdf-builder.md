@@ -21,7 +21,6 @@ You ONLY create and modify:
 ## Tech Stack
 - `pdfjs-dist` — PDF 텍스트+위치 추출 (TextBlock[] 반환)
 - `pdf-lib` + `fontkit` — PDF 생성, overlay 편집, 커스텀 폰트 임베딩
-- `canvas` — G-3(rebuild) 이미지 처리 시 조건부 의존성. E-1·G-1에서는 불필요
 - Noto Sans — 기본 번들 폰트 (`assets/fonts/`)
 
 ## Core Data Structure (CLAUDE.md 참조)
@@ -86,8 +85,7 @@ export class PdfModule {}
 - 그래도 넘치면 말줄임(...) 처리
 
 ### G-3: rebuild 모드 구현
-- 빈 캔버스에 이미지·그래픽 복사 후 TextBlock 좌표 기반 번역 텍스트 배치
-- `canvas` (node-canvas) 의존성 필요
+- pdf-lib으로 빈 페이지 생성 후 이미지·그래픽 복사, TextBlock 좌표 기반 번역 텍스트 배치
 
 ### G-5: 콘텐츠 스트림 텍스트 제거
 - PDF 콘텐츠 스트림 파싱하여 텍스트 명령어(BT...ET)만 삭제

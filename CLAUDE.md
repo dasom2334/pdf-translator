@@ -174,37 +174,7 @@ assets/
 - `.env`는 사용자 소유 — 어떤 에이전트도 수정 금지
 - 공유 인터페이스/enum 변경 시 이 CLAUDE.md도 함께 업데이트
 
-## 레이어별 Phase 로드맵
-
-### 추출 레이어 (Extraction)
-- E-1: 위치 포함 텍스트 블록 추출 (pdfjs-dist → TextBlock[])
-- E-2: 추출 품질 개선 (읽기 순서, 헤더/푸터, 문단 병합)
-- E-3: 인코딩 대응 (커스텀 폰트, CJK)
-- E-4: 복잡한 레이아웃 (다단, 표, 각주)
-- E-5: OCR 폴백 (스캔 PDF)
-
-### 생성 레이어 (Generation)
-- G-1: overlay 모드 (화이트박스 + 번역 텍스트 치환, 흰 배경 PDF 한정)
-- G-2: 텍스트 오버플로 처리 (폰트 축소, 말줄임)
-- G-3: rebuild 모드 (새 PDF 재생성)
-- G-4: 바이링구얼 PDF
-- G-5: 콘텐츠 스트림 텍스트 제거 (배경색 문제 해결)
-
-### 번역 레이어 (Translation)
-- T-1: MyMemory 어댑터
-- T-2: Gemini 어댑터
-- T-3: 번역 품질 개선 (청크 오버랩, 후처리)
-- T-4: 용어집 (Glossary)
-- T-5: Google Cloud Translation
-
-### CLI 레이어 (CLI)
-- C-1: 기본 커맨드 (-i, -t, -o, -p)
-- C-2: 모드 및 폰트 옵션 (--mode, --font)
-- C-3: 페이지 범위 (--pages)
-- C-4: 설정 파일 (.pdf-translator.yml)
-- C-5: 진행률 표시
-
-### phase 커맨드 실행 순서
+## Phase 커맨드 실행 순서
 | phase 커맨드 | 내용 | 전제조건 |
 |-------------|------|---------|
 | `/phase0` | 병렬: backend-builder + infra-builder | — |
