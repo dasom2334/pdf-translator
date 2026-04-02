@@ -36,3 +36,36 @@ You ONLY create and modify:
 
 ## Reference
 CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Structure 참조.
+
+## 하네스 검증 루프
+코드 작성 후 반드시 순서대로 실행:
+
+1. `pnpm build` (해당 시)
+2. `pnpm lint` (해당 시)
+3. `pnpm test` (해당 시)
+4. **충돌 사전 확인:**
+   ```bash
+   git fetch origin main
+   git merge --no-commit --no-ff origin/main
+   git merge --abort
+   ```
+   충돌 발생 시 즉시 중단하고 사용자에게 보고.
+5. commit → push → PR 생성 후 PR 번호 캡처:
+   ```bash
+   PR_NUMBER=$(gh pr create ... | grep -o '[0-9]*$')
+   ```
+6. **code-reviewer 검수:**
+   `Agent(subagent_type="code-reviewer")` 호출 시 아래 형식으로 전달:
+   ```
+   SPEC: {현재 작업에서 구현한 내용 전체}
+   PR_NUMBER: {PR_NUMBER}
+   BRANCH: {브랜치명}
+   ROUND: {현재 라운드 번호, 최초=1}
+   FILES: {수정/생성한 파일 경로 목록}
+   ```
+   - 질의 사항 있음 → 오케스트레이터에게 질의 내용 보고 후 답변 대기
+   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (ROUND +1, 최대 3회)
+   - APPROVE → 완료 보고
+
+동일 에러 3회 반복 시 중단하고 사용자에게 보고.
+자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.
