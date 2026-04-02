@@ -204,9 +204,12 @@ assets/
 - C-4: 설정 파일 (.pdf-translator.yml)
 - C-5: 진행률 표시
 
-### phase 커맨드 ↔ 레이어 페이즈 매핑
-| phase 커맨드 | 실행 순서 |
-|-------------|----------|
-| `/phase0` | 병렬: backend-builder + infra-builder |
-| `/phase1` | Step 1 병렬: E-1 + T-1 + T-2 → Step 2 순차: G-1 + G-2 → Step 3 순차: C-1 + C-2 |
-| `/phase2` | Step 1 병렬: E-2 + G-3 + G-5 → Step 2 병렬: T-3 + T-4 → Step 3 순차: C-3 + C-4 + C-5 |
+### phase 커맨드 실행 순서
+| phase 커맨드 | 내용 | 전제조건 |
+|-------------|------|---------|
+| `/phase0` | 병렬: backend-builder + infra-builder | — |
+| `/phase1-1` | 병렬: pdf-builder(E-1) + translation-builder(T-1+T-2) | phase0 머지 |
+| `/phase1-2` | pdf-builder(G-1+G-2) | phase1-1 머지 |
+| `/phase1-3` | cli-builder(C-1+C-2) | phase1-2 머지 |
+| `/phase2-1` | 병렬: pdf-builder(E-2+G-3+G-5) + translation-builder(T-3+T-4) | phase1-3 머지 |
+| `/phase2-2` | cli-builder(C-3+C-4+C-5) | phase2-1 머지 |
