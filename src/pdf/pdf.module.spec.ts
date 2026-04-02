@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PdfModule } from './pdf.module';
-import { PDF_EXTRACTOR, PDF_GENERATOR } from './interfaces';
+import { PDF_EXTRACTOR, PDF_OVERLAY_GENERATOR, PDF_REBUILD_GENERATOR } from './interfaces';
 
 describe('PdfModule', () => {
   it('should resolve PDF_EXTRACTOR', async () => {
@@ -11,11 +11,19 @@ describe('PdfModule', () => {
     expect(extractor).toBeDefined();
   });
 
-  it('should resolve PDF_GENERATOR', async () => {
+  it('should resolve PDF_OVERLAY_GENERATOR', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [PdfModule],
     }).compile();
-    const generator = moduleRef.get(PDF_GENERATOR);
-    expect(generator).toBeDefined();
+    const overlayGenerator = moduleRef.get(PDF_OVERLAY_GENERATOR);
+    expect(overlayGenerator).toBeDefined();
+  });
+
+  it('should resolve PDF_REBUILD_GENERATOR', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [PdfModule],
+    }).compile();
+    const rebuildGenerator = moduleRef.get(PDF_REBUILD_GENERATOR);
+    expect(rebuildGenerator).toBeDefined();
   });
 });

@@ -1,6 +1,8 @@
+import { TextBlock } from './text-block.interface';
+
 export const PDF_EXTRACTOR = Symbol('PDF_EXTRACTOR');
 
 export interface IPdfExtractor {
-  extractText(fileBuffer: Buffer): Promise<string>;
-  extractTextByPages(fileBuffer: Buffer): Promise<string[]>;
+  extractBlocks(fileBuffer: Buffer): Promise<TextBlock[]>;
+  extractBlocksByPages(fileBuffer: Buffer, pageRange?: string): Promise<TextBlock[][]>;
 }
