@@ -97,10 +97,21 @@ export class TranslationModule {}
    git merge --abort
    ```
    충돌 발생 시 즉시 중단하고 사용자에게 보고.
-5. commit → push → PR 생성
+5. commit → push → PR 생성 후 PR 번호 캡처:
+   ```bash
+   PR_NUMBER=$(gh pr create ... | grep -o '[0-9]*$')
+   ```
 6. **code-reviewer 검수:**
-   `Agent(subagent_type="code-reviewer")` 호출 — 현재 작업 스펙과 구현 파일 경로 전달.
-   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (최대 3회)
+   `Agent(subagent_type="code-reviewer")` 호출 시 아래 형식으로 전달:
+   ```
+   SPEC: {현재 작업에서 구현한 내용 전체}
+   PR_NUMBER: {PR_NUMBER}
+   BRANCH: {브랜치명}
+   ROUND: {현재 라운드 번호, 최초=1}
+   FILES: {수정/생성한 파일 경로 목록}
+   ```
+   - 질의 사항 있음 → 오케스트레이터에게 질의 내용 보고 후 답변 대기
+   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (ROUND +1, 최대 3회)
    - APPROVE → 완료 보고
 
 동일 에러 3회 반복 시 중단하고 사용자에게 보고.
