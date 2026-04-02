@@ -1,4 +1,4 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { IPdfRebuildGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 
 @Injectable()
@@ -8,6 +8,6 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
     _outputPath: string,
     _options?: PdfGenerateOptions,
   ): Promise<void> {
-    throw new NotImplementedException('Phase 1');
+    throw new Error('Not implemented: Phase 1');
   }
 }

@@ -1,5 +1,4 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
-import { NotImplementedException } from '@nestjs/common';
 
 interface TranslateCommandOptions {
   input: string;
@@ -7,7 +6,9 @@ interface TranslateCommandOptions {
   source?: string;
   output?: string;
   provider?: string;
+  mode?: string;
   font?: string;
+  pages?: string;
 }
 
 @Command({
@@ -35,8 +36,13 @@ export class TranslateCommand extends CommandRunner {
     return val;
   }
 
-  @Option({ flags: '-p, --provider <name>', description: 'Translation provider (mymemory|gemini)' })
+  @Option({ flags: '-p, --provider <provider>', description: 'Translation provider (mymemory|gemini)', defaultValue: 'mymemory' })
   parseProvider(val: string): string {
+    return val;
+  }
+
+  @Option({ flags: '--mode <mode>', description: 'Output mode (overlay|rebuild)', defaultValue: 'overlay' })
+  parseMode(val: string): string {
     return val;
   }
 
@@ -45,7 +51,12 @@ export class TranslateCommand extends CommandRunner {
     return val;
   }
 
+  @Option({ flags: '--pages <range>', description: 'Page range to translate (e.g. "1-5,10")' })
+  parsePages(val: string): string {
+    return val;
+  }
+
   async run(_passedParams: string[], _options?: TranslateCommandOptions): Promise<void> {
-    throw new NotImplementedException('Phase 1');
+    throw new Error('Not implemented: Phase 1');
   }
 }

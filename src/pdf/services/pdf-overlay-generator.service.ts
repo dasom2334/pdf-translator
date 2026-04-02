@@ -1,4 +1,4 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { IPdfOverlayGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 
 @Injectable()
@@ -9,6 +9,6 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     _outputPath: string,
     _options?: PdfGenerateOptions,
   ): Promise<void> {
-    throw new NotImplementedException('Phase 1');
+    throw new Error('Not implemented: Phase 1');
   }
 }
