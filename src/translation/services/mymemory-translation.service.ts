@@ -130,8 +130,6 @@ export class MyMemoryTranslationService implements ITranslationService {
     }
 
     const chunks = this.splitIntoChunks(text);
-    // 청크를 병렬로 요청한다. 일일 한도(5000자) 초과 시 어차피 전체 번역이 실패하므로
-    // 순차 처리의 이점이 없다. 향후 중복 요청 캐싱 / 동일 PDF 재요청 처리로 확장 예정.
     const translatedChunks = await Promise.all(
       chunks.map((chunk) => this.translateChunk(chunk, sourceLang, targetLang)),
     );
