@@ -117,21 +117,22 @@ export class TranslationModule {}
    - APPROVE → 7번으로 이동
 
 7. **PR 본문 최종 업데이트 (APPROVE 후):**
-   모든 작업이 완료되면 PR 본문을 아래 형식으로 업데이트한다.
+   모든 작업이 완료되면 PR 본문을 STAR 형식으로 업데이트한다.
    ```bash
    gh pr edit {PR_NUMBER} --body "$(cat <<'EOF'
-   ## 구현 내용
-   - {구현한 항목 목록}
+   ## Situation (상황)
+   {이 PR이 왜 필요한지 — 어떤 기능이 없었거나 어떤 문제가 있었는지}
 
-   ## 검증 결과
-   - 총 {N}라운드 검수
-   - 수정 사항: {각 라운드별 주요 수정 내용, 1라운드 통과 시 "1라운드 통과"}
-   - 최종 판정: APPROVE
+   ## Task (과제)
+   {무엇을 구현/해결해야 했는지 — 스펙 기준 목표}
 
-   ## 테스트
-   - `pnpm build` ✅
-   - `pnpm lint` ✅
-   - `pnpm test` ✅ ({N}개 테스트 통과)
+   ## Action (행동)
+   - {실제로 구현한 내용, 파일 단위로 정리}
+
+   ## Result (결과)
+   - 검수: 총 {N}라운드 ({각 라운드 핵심 수정 사항, 1라운드 통과 시 "1라운드 직통"})
+   - 최종 판정: APPROVE ✅
+   - pnpm build ✅ / pnpm lint ✅ / pnpm test ✅ ({N}개 테스트 통과)
    EOF
    )"
    ```
