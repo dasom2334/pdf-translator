@@ -130,9 +130,11 @@ export class MyMemoryTranslationService implements ITranslationService {
     }
 
     const chunks = this.splitIntoChunks(text);
-    const translatedChunks = await Promise.all(
-      chunks.map((chunk) => this.translateChunk(chunk, sourceLang, targetLang)),
-    );
+    const translatedChunks: string[] = [];
+    for (const chunk of chunks) {
+      const translated = await this.translateChunk(chunk, sourceLang, targetLang);
+      translatedChunks.push(translated);
+    }
 
     return translatedChunks.join('\n\n');
   }
