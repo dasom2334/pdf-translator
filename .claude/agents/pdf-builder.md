@@ -16,23 +16,97 @@ You ONLY create and modify:
 - `src/cli/**`, `src/cli.ts`, `src/main.ts`
 - `src/app.module.ts`
 - `docker/**`, `.github/**`, `docs/**`
-- `package.json` (Phase 0에서 backend-builder가 핵심 의존성 설치 완료. 추가 필요 시 커밋 메시지에 명시하고 PR description에 `pnpm add <pkg>` 포함)
+- `package.json` (추가 필요 시 커밋 메시지에 명시하고 PR description에 `pnpm add <pkg>` 포함)
 
 ## Tech Stack
-- `pdf-parse` — PDF 텍스트 추출
-- `pdf-lib` + `fontkit` — PDF 생성, 커스텀 폰트 임베딩
+- `pdfjs-dist` — PDF 텍스트+위치 추출 (TextBlock[] 반환)
+- `pdf-lib` + `fontkit` — PDF 생성, overlay 편집, 커스텀 폰트 임베딩
+- `canvas` — G-3(rebuild) 이미지 처리 시 조건부 의존성. E-1·G-1에서는 불필요
 - Noto Sans — 기본 번들 폰트 (`assets/fonts/`)
 
+## Core Data Structure (CLAUDE.md 참조)
+```typescript
+interface TextBlock {
+  text: string;
+  translatedText?: string;  // 번역 후 CLI 오케스트레이터가 채움
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  fontName: string;
+}
+```
+
 ## Interfaces (CLAUDE.md 참조)
-- IPdfExtractor: `extractText(fileBuffer)`, `extractTextByPages(fileBuffer)`
-- IPdfGenerator: `generate(text, outputPath, options?)`, `generateFromPages(pages[], outputPath, options?)`
+- IPdfExtractor: `extractBlocks(fileBuffer)` → `TextBlock[]`, `extractBlocksByPages(fileBuffer, pageRange?)` → `TextBlock[][]`
+- IPdfOverlayGenerator: `overlay(originalBuffer, blocks, outputPath, options?)` → `void`
+- IPdfRebuildGenerator: `rebuild(blocks, outputPath, options?)` → `void`
 - PdfGenerateOptions: `{ fontPath?: string }`
 
+## DI Tokens
+- `PDF_EXTRACTOR` → PdfExtractorService
+- `PDF_OVERLAY_GENERATOR` → PdfOverlayGeneratorService
+- `PDF_REBUILD_GENERATOR` → PdfRebuildGeneratorService
+
+## Module Wiring
+
+```typescript
+// pdf.module.ts
+@Module({
+  providers: [
+    PdfExtractorService,
+    PdfOverlayGeneratorService,
+    PdfRebuildGeneratorService,
+    { provide: PDF_EXTRACTOR, useExisting: PdfExtractorService },
+    { provide: PDF_OVERLAY_GENERATOR, useExisting: PdfOverlayGeneratorService },
+    { provide: PDF_REBUILD_GENERATOR, useExisting: PdfRebuildGeneratorService },
+  ],
+  exports: [PDF_EXTRACTOR, PDF_OVERLAY_GENERATOR, PDF_REBUILD_GENERATOR],
+})
+export class PdfModule {}
+```
+
+## Phase 별 작업
+
+### E-1: 위치 포함 텍스트 블록 추출
+- pdfjs-dist로 페이지별 TextBlock[] 반환
+- x·y·width·height·fontSize·fontName 포함
+- PDF 유효성 검증: 바이너리 magic bytes 비교 (`0x25 0x50 0x44 0x46`)
+- 텍스트 없으면 BadRequestException
+
+### G-1: overlay 모드 구현
+- 원본 PDF 위 TextBlock 영역 화이트박스 처리 후 block.translatedText 동일 좌표 삽입
+- CJK 폰트 임베딩 (fontkit)
+- **POC 제약: 흰 배경 PDF만 정상 동작** (G-5에서 해결)
+
+### G-2: 텍스트 오버플로 처리
+- 번역 텍스트가 원본 박스보다 길 경우: 폰트 크기 자동 축소
+- 그래도 넘치면 말줄임(...) 처리
+
+### G-3: rebuild 모드 구현
+- 빈 캔버스에 이미지·그래픽 복사 후 TextBlock 좌표 기반 번역 텍스트 배치
+- `canvas` (node-canvas) 의존성 필요
+
+### G-5: 콘텐츠 스트림 텍스트 제거
+- PDF 콘텐츠 스트림 파싱하여 텍스트 명령어(BT...ET)만 삭제
+- 화이트박스 대신 원본 텍스트 실제 제거
+- 배경색·이미지 위 텍스트 문제 완전 해결
+
 ## Rules
-- PDF 유효성 검증은 반드시 바이너리 magic bytes 비교 (`0x25 0x50 0x44 0x46`)
 - 에러: `BadRequestException` (입력 오류), `InternalServerErrorException` (파싱 실패)
 - 기본 폰트: `assets/fonts/` 번들 Noto Sans (fontkit으로 임베드)
 - 커스텀 폰트: `options.fontPath`로 오버라이드
 - 유닛 테스트 필수 (happy path + 에러 케이스)
-- `pnpm run lint` + `pnpm test` 통과 후 커밋
 - Conventional commits
+
+## 하네스 검증 루프
+코드 작성 후 반드시 실행:
+1. `pnpm build`
+2. `pnpm lint`
+3. `pnpm test`
+
+추가 검증: 샘플 PDF로 TextBlock 추출 결과 콘솔 출력 확인.
+동일 에러 3회 반복 시 중단하고 사용자에게 보고.
+자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.
