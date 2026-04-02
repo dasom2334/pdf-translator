@@ -84,6 +84,7 @@ export class TranslationModule {}
 - API 키 필요한 서비스: `onModuleInit()`에서 `throw new Error(...)` (부트스트랩 중단 목적)
 - 유닛 테스트 필수 (mock HTTP/SDK 호출)
 - Conventional commits
+- **모든 문서(PR 본문, PR 코멘트, 로그 파일)는 한국어로 작성**
 
 ## 하네스 검증 루프
 코드 작성 후 반드시 순서대로 실행:
@@ -113,7 +114,28 @@ export class TranslationModule {}
    ```
    - 질의 사항 있음 → 오케스트레이터에게 질의 내용 보고 후 답변 대기
    - REQUEST_CHANGES → 수정 후 1번부터 재시작 (ROUND +1, 최대 3회)
-   - APPROVE → 완료 보고
+   - APPROVE → 7번으로 이동
+
+7. **PR 본문 최종 업데이트 (APPROVE 후):**
+   모든 작업이 완료되면 PR 본문을 아래 형식으로 업데이트한다.
+   ```bash
+   gh pr edit {PR_NUMBER} --body "$(cat <<'EOF'
+   ## 구현 내용
+   - {구현한 항목 목록}
+
+   ## 검증 결과
+   - 총 {N}라운드 검수
+   - 수정 사항: {각 라운드별 주요 수정 내용, 1라운드 통과 시 "1라운드 통과"}
+   - 최종 판정: APPROVE
+
+   ## 테스트
+   - `pnpm build` ✅
+   - `pnpm lint` ✅
+   - `pnpm test` ✅ ({N}개 테스트 통과)
+   EOF
+   )"
+   ```
+   업데이트 완료 후 완료 보고.
 
 동일 에러 3회 반복 시 중단하고 사용자에게 보고.
 자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.
