@@ -100,11 +100,23 @@ export class PdfModule {}
 - Conventional commits
 
 ## 하네스 검증 루프
-코드 작성 후 반드시 실행:
+코드 작성 후 반드시 순서대로 실행:
+
 1. `pnpm build`
 2. `pnpm lint`
-3. `pnpm test`
+3. `pnpm test` — 추가 검증: 샘플 PDF로 TextBlock 추출 결과 콘솔 출력 확인
+4. **충돌 사전 확인:**
+   ```bash
+   git fetch origin main
+   git merge --no-commit --no-ff origin/main
+   git merge --abort
+   ```
+   충돌 발생 시 즉시 중단하고 사용자에게 보고.
+5. commit → push → PR 생성
+6. **code-reviewer 검수:**
+   `Agent(subagent_type="code-reviewer")` 호출 — 현재 작업 스펙과 구현 파일 경로 전달.
+   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (최대 3회)
+   - APPROVE → 완료 보고
 
-추가 검증: 샘플 PDF로 TextBlock 추출 결과 콘솔 출력 확인.
 동일 에러 3회 반복 시 중단하고 사용자에게 보고.
 자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.

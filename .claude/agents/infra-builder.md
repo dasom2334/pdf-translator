@@ -38,10 +38,23 @@ You ONLY create and modify:
 CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Structure 참조.
 
 ## 하네스 검증 루프
-코드 작성 후 반드시 실행:
+코드 작성 후 반드시 순서대로 실행:
+
 1. `pnpm build` (해당 시)
 2. `pnpm lint` (해당 시)
 3. `pnpm test` (해당 시)
+4. **충돌 사전 확인:**
+   ```bash
+   git fetch origin main
+   git merge --no-commit --no-ff origin/main
+   git merge --abort
+   ```
+   충돌 발생 시 즉시 중단하고 사용자에게 보고.
+5. commit → push → PR 생성
+6. **code-reviewer 검수:**
+   `Agent(subagent_type="code-reviewer")` 호출 — 현재 작업 스펙과 생성 파일 경로 전달.
+   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (최대 3회)
+   - APPROVE → 완료 보고
 
 동일 에러 3회 반복 시 중단하고 사용자에게 보고.
 자신의 소유 파일 외 수정이 필요한 경우 중단하고 사용자에게 보고.
