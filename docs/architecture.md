@@ -14,14 +14,15 @@ graph TD
     CliModule --> TranslateCommand
 
     PdfModule --> PdfExtractorService
-    PdfModule --> PdfGeneratorService
+    PdfModule --> PdfOverlayGeneratorService
+    PdfModule --> PdfRebuildGeneratorService
 
     TranslationModule --> MyMemoryTranslationService
     TranslationModule --> GeminiTranslationService
     TranslationModule --> TranslationServiceFactory
 ```
 
-## Request Flow (CLI)
+## TextBlock Data Flow
 
 ```mermaid
 sequenceDiagram
@@ -30,19 +31,26 @@ sequenceDiagram
     participant Factory as TranslationServiceFactory
     participant Extractor as PdfExtractorService
     participant Translator as ITranslationService
-    participant Generator as PdfGeneratorService
+    participant Overlay as PdfOverlayGeneratorService
+    participant Rebuild as PdfRebuildGeneratorService
 
-    User->>CLI: pnpm run cli -- translate -i input.pdf -t ko
-    CLI->>Extractor: extractTextByPages(buffer)
-    Extractor-->>CLI: pages: string[]
+    User->>CLI: pnpm run cli -- translate -i input.pdf -t ko --mode overlay
+    CLI->>Extractor: extractBlocksByPages(buffer, pageRange?)
+    Extractor-->>CLI: blocks: TextBlock[][]
     CLI->>Factory: create(provider)
     Factory-->>CLI: ITranslationService
-    loop for each page
-        CLI->>Translator: translate(page, sourceLang, targetLang)
-        Translator-->>CLI: translatedPage
+    loop for each TextBlock
+        CLI->>Translator: translateBatch(texts, sourceLang, targetLang)
+        Translator-->>CLI: translatedTexts: string[]
+        Note over CLI: block.translatedText = translatedText
     end
-    CLI->>Generator: generateFromPages(translatedPages, outputPath)
-    Generator-->>CLI: void
+    alt mode = overlay
+        CLI->>Overlay: overlay(originalBuffer, blocks, outputPath, options?)
+        Overlay-->>CLI: void
+    else mode = rebuild
+        CLI->>Rebuild: rebuild(blocks, outputPath, options?)
+        Rebuild-->>CLI: void
+    end
     CLI-->>User: Translation complete!
 ```
 
@@ -80,6 +88,16 @@ classDiagram
     TranslationServiceFactory --> ITranslationService
 ```
 
+## PDF Generation Strategy
+
+```mermaid
+graph TD
+    CLI[TranslateCommand] -->|--mode overlay| Overlay[PdfOverlayGeneratorService]
+    CLI -->|--mode rebuild| Rebuild[PdfRebuildGeneratorService]
+    Overlay -->|overlay originalBuffer + blocks| OutPDF[output.pdf]
+    Rebuild -->|rebuild from blocks| OutPDF
+```
+
 ## Environment Variables Reference
 
 | Variable | Description | Required | Default |
@@ -87,5 +105,5 @@ classDiagram
 | `NODE_ENV` | Runtime environment | No | `development` |
 | `UPLOAD_DIR` | Directory for uploaded files | No | `./uploads` |
 | `MAX_FILE_SIZE` | Maximum upload file size in bytes | No | `10485760` (10MB) |
-| `GEMINI_API_KEY` | Google Gemini API key (Phase 2+) | Phase 2+ | - |
+| `GEMINI_API_KEY` | Google Gemini API key | T-2+ | - |
 | `PORT` | HTTP server port (Phase 3+) | Phase 3+ | `3000` |
