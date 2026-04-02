@@ -85,6 +85,7 @@ export class TranslationModule {}
 - 유닛 테스트 필수 (mock HTTP/SDK 호출)
 - Conventional commits
 - **모든 문서(PR 본문, PR 코멘트, 로그 파일)는 한국어로 작성**
+- **"논의"를 언급할 때는 반드시 주체를 명시** — "사용자와 에이전트 간 논의" 또는 "에이전트(작업자)와 리뷰어 간 논의" 등
 
 ## 하네스 검증 루프
 코드 작성 후 반드시 순서대로 실행:
