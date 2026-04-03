@@ -172,6 +172,16 @@ describe('PdfOverlayGeneratorService', () => {
       await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
       expect(fs.existsSync(outputPath)).toBe(true);
     });
+
+    it('should not enter infinite loop when boxWidth is 0', async () => {
+      const pdfBuffer = await createMinimalPdfBuffer();
+      const outputPath = path.join(tmpDir, 'output-zero-width.pdf');
+
+      const blocks: TextBlock[] = [makeBlock({ width: 0, fontSize: 12, translatedText: 'Some text' })];
+
+      await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+      expect(fs.existsSync(outputPath)).toBe(true);
+    });
   });
 
   // -------------------------------------------------------------------------

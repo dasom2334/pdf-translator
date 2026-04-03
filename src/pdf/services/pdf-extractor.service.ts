@@ -162,12 +162,6 @@ export class PdfExtractorService implements IPdfExtractor {
       }
     }
 
-    if (allBlocks.length === 0) {
-      throw new BadRequestException(
-        'No text content found in the PDF document',
-      );
-    }
-
     return allBlocks;
   }
 

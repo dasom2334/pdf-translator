@@ -3,6 +3,7 @@ import * as path from 'path';
 import {
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
@@ -22,6 +23,7 @@ const DEFAULT_FONT_PATH = path.resolve(
 
 @Injectable()
 export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
+  private readonly logger = new Logger(PdfOverlayGeneratorService.name);
   /**
    * Fit text into the given width using font size shrinking and ellipsis truncation.
    * Returns the adjusted text and font size to use.
@@ -45,12 +47,18 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
 
     // Phase 2: if still overflows at minimum size, truncate with ellipsis
     if (measureWidth(text, fontSize) > boxWidth) {
+      if (boxWidth <= 0) {
+        return { text: '', fontSize };
+      }
       let truncated = text;
       while (
         truncated.length > 0 &&
         measureWidth(truncated + ELLIPSIS, fontSize) > boxWidth
       ) {
         truncated = truncated.slice(0, -1);
+      }
+      if (truncated.length === 0) {
+        return { text: '', fontSize };
       }
       return { text: truncated + ELLIPSIS, fontSize };
     }
@@ -157,10 +165,13 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
           font,
           color: rgb(0, 0, 0),
         });
-      } catch {
+      } catch (err) {
         // If the font cannot encode the text (e.g. CJK chars with fallback font),
         // skip rendering this block's text. The white rectangle has already been
         // drawn, so the original text is still hidden.
+        this.logger.warn(
+          `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
