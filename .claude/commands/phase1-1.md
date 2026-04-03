@@ -34,7 +34,7 @@ Branch: feature/translation-adapters
    - MyMemory API (https://api.mymemory.translated.net/get) 사용
    - API 키 불필요 (무료 tier: 일 5000자)
    - translate(): HTTP GET (?q=text&langpair={sourceLang}|{targetLang})
-   - translateBatch(): 순차 호출, 문단 단위 청크 분할 (최대 500자)
+   - translateBatch(): 문단 단위 청크 분할 (최대 500자), 청크 병렬 처리
    - getSupportedLanguages(): 지원 언어 목록 반환
    - 에러: BadRequestException (빈 텍스트), TranslationException(BAD_GATEWAY) (API 오류)
 
@@ -43,7 +43,7 @@ Branch: feature/translation-adapters
    - GEMINI_API_KEY 환경변수
    - onModuleInit()에서 API 키 검증 → throw new Error(...) (HttpException 금지)
    - translate(): 프롬프트 기반 번역, 청크 최대 4000자
-   - translateBatch(): 순차 호출
+   - translateBatch(): 청크 병렬 처리
    - 분당 요청 제한 대응 (지수 백오프 재시도)
    - 에러: BadRequestException (빈 텍스트), TranslationException(BAD_GATEWAY) (API 오류)
 
