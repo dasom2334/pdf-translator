@@ -1,16 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { GeminiTranslationService } from './gemini-translation.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
-// Mock @google/generative-ai using jest.mock factory with no variable references
-jest.mock('@google/generative-ai', () => {
-  const mockGenerateContent = jest.fn();
-  const mockGetGenerativeModel = jest.fn().mockReturnValue({
+vi.mock('@google/generative-ai', () => {
+  const mockGenerateContent = vi.fn();
+  const mockGetGenerativeModel = vi.fn().mockReturnValue({
     generateContent: mockGenerateContent,
   });
-  const MockGoogleGenerativeAI = jest.fn().mockImplementation(() => ({
+  const MockGoogleGenerativeAI = vi.fn().mockImplementation(() => ({
     getGenerativeModel: mockGetGenerativeModel,
   }));
   return { GoogleGenerativeAI: MockGoogleGenerativeAI };
@@ -20,12 +19,12 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 describe('GeminiTranslationService', () => {
   let service: GeminiTranslationService;
-  let mockGenerateContent: jest.Mock;
+  let mockGenerateContent: ReturnType<typeof vi.fn>;
 
   const originalEnv = process.env;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     process.env = { ...originalEnv, GEMINI_API_KEY: 'test-api-key' };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -35,12 +34,11 @@ describe('GeminiTranslationService', () => {
     service = module.get<GeminiTranslationService>(GeminiTranslationService);
     service.onModuleInit();
 
-    // Get the mock generateContent from the mocked module
-    const mockAIInstance = (GoogleGenerativeAI as jest.Mock).mock.results[
-      (GoogleGenerativeAI as jest.Mock).mock.results.length - 1
-    ].value as { getGenerativeModel: jest.Mock };
+    const mockAIInstance = (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results[
+      (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results.length - 1
+    ].value as { getGenerativeModel: ReturnType<typeof vi.fn> };
     const mockModel = mockAIInstance.getGenerativeModel({ model: 'gemini-1.5-flash' }) as {
-      generateContent: jest.Mock;
+      generateContent: ReturnType<typeof vi.fn>;
     };
     mockGenerateContent = mockModel.generateContent;
   });
@@ -96,7 +94,7 @@ describe('GeminiTranslationService', () => {
     });
 
     it('should retry on rate limit error with exponential backoff', async () => {
-      jest.useFakeTimers();
+      vi.useFakeTimers();
 
       const rateLimitError = new Error('429 Too Many Requests: rate limit exceeded');
       mockGenerateContent
@@ -107,32 +105,29 @@ describe('GeminiTranslationService', () => {
         });
 
       const translatePromise = service.translate('Hello', 'en', 'ko');
-
-      // Advance timers to allow retries
-      await jest.runAllTimersAsync();
+      await vi.runAllTimersAsync();
 
       const result = await translatePromise;
       expect(result).toBe('번역됨');
       expect(mockGenerateContent).toHaveBeenCalledTimes(3);
 
-      jest.useRealTimers();
+      vi.useRealTimers();
     });
 
     it('should throw TranslationException after max retries on rate limit', async () => {
-      jest.useFakeTimers();
+      vi.useFakeTimers();
 
       const rateLimitError = new Error('429 rate limit');
       mockGenerateContent.mockRejectedValue(rateLimitError);
 
-      // Attach rejection handler immediately to avoid unhandledRejection
       const translatePromise = service.translate('Hello', 'en', 'ko').catch((e) => e);
-      await jest.runAllTimersAsync();
+      await vi.runAllTimersAsync();
 
       const result = await translatePromise;
       expect(result).toBeInstanceOf(TranslationException);
       expect(mockGenerateContent).toHaveBeenCalledTimes(3);
 
-      jest.useRealTimers();
+      vi.useRealTimers();
     });
 
     it('should split long text and join translated chunks', async () => {
