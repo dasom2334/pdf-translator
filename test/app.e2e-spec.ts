@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TranslateCommand } from '../src/cli/commands/translate.command';
@@ -23,6 +24,20 @@ const sampleBlock: TextBlock = {
   fontSize: 12,
   fontName: 'Helvetica',
 };
+
+describe('CLI --help', () => {
+  it('--help 출력이 정상 동작해야 한다', () => {
+    const output = execSync(
+      'node_modules/.bin/ts-node -r tsconfig-paths/register src/cli.ts translate --help',
+      {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+        env: { ...process.env, GEMINI_API_KEY: 'test-dummy-key' },
+      },
+    );
+    expect(output).toContain('translate');
+  });
+});
 
 describe('CLI E2E — TranslateCommand', () => {
   let module: TestingModule;

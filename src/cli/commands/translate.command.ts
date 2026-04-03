@@ -20,6 +20,7 @@ interface TranslateCommandOptions {
   provider?: string;
   mode?: string;
   font?: string;
+  pages?: string;
 }
 
 @Command({
@@ -77,6 +78,13 @@ export class TranslateCommand extends CommandRunner {
     defaultValue: 'mymemory',
   })
   parseProvider(val: string): string {
+    const valid = Object.values(TranslationProvider) as string[];
+    if (!valid.includes(val)) {
+      console.error(
+        `Error: Invalid provider "${val}". Valid values: ${valid.join(', ')}`,
+      );
+      process.exit(1);
+    }
     return val;
   }
 
@@ -86,6 +94,13 @@ export class TranslateCommand extends CommandRunner {
     defaultValue: 'overlay',
   })
   parseMode(val: string): string {
+    const valid = Object.values(OutputMode) as string[];
+    if (!valid.includes(val)) {
+      console.error(
+        `Error: Invalid mode "${val}". Valid values: ${valid.join(', ')}`,
+      );
+      process.exit(1);
+    }
     return val;
   }
 
@@ -140,7 +155,10 @@ export class TranslateCommand extends CommandRunner {
 
       // Step 2: Extract text blocks by page
       console.log('Extracting text from PDF...');
-      const pageBlocks = await this.pdfExtractor.extractBlocksByPages(buffer);
+      const pageBlocks = await this.pdfExtractor.extractBlocksByPages(
+        buffer,
+        opts.pages,
+      );
 
       // Step 3: Flatten blocks and collect texts
       const flatBlocks = pageBlocks.flat();
