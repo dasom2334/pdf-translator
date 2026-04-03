@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { PdfModule } from './pdf.module';
 import { PDF_EXTRACTOR, PDF_OVERLAY_GENERATOR, PDF_REBUILD_GENERATOR } from './interfaces';
