@@ -71,7 +71,7 @@ APPROVE / REQUEST_CHANGES
 ```
 
 ### 2. PR 코멘트 작성
-로그 작성 완료 후 PR에 결과를 게시한다. PR 본문 업데이트는 빌더 에이전트의 역할이며, 리뷰어는 코멘트만 게시한다.
+로그 작성 완료 후 **판정(APPROVE/REQUEST_CHANGES)에 관계없이 반드시** PR에 결과를 게시한다. PR 본문 업데이트는 빌더 에이전트의 역할이며, 리뷰어는 코멘트만 게시한다.
 
 ```bash
 gh pr comment {PR_NUMBER} --body "$(cat .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md)"
