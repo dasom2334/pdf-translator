@@ -142,12 +142,7 @@ export class MyMemoryTranslationService implements ITranslationService {
     sourceLang: string,
     targetLang: string,
   ): Promise<string[]> {
-    const results: string[] = [];
-    for (const text of texts) {
-      const translated = await this.translate(text, sourceLang, targetLang);
-      results.push(translated);
-    }
-    return results;
+    return Promise.all(texts.map((text) => this.translate(text, sourceLang, targetLang)));
   }
 
   async getSupportedLanguages(): Promise<string[]> {

@@ -103,7 +103,7 @@ describe('MyMemoryTranslationService', () => {
   });
 
   describe('translateBatch', () => {
-    it('should translate all texts sequentially', async () => {
+    it('should translate all texts in parallel', async () => {
       mockFetch
         .mockResolvedValueOnce(makeMyMemoryResponse('안녕하세요'))
         .mockResolvedValueOnce(makeMyMemoryResponse('세계'));
@@ -111,6 +111,20 @@ describe('MyMemoryTranslationService', () => {
       const results = await service.translateBatch(['Hello', 'World'], 'en', 'ko');
       expect(results).toEqual(['안녕하세요', '세계']);
       expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should call translate for each text in parallel via Promise.all', async () => {
+      mockFetch
+        .mockResolvedValueOnce(makeMyMemoryResponse('하나'))
+        .mockResolvedValueOnce(makeMyMemoryResponse('둘'))
+        .mockResolvedValueOnce(makeMyMemoryResponse('셋'));
+
+      const translateSpy = vi.spyOn(service, 'translate');
+      const results = await service.translateBatch(['One', 'Two', 'Three'], 'en', 'ko');
+
+      expect(translateSpy).toHaveBeenCalledTimes(3);
+      expect(results).toHaveLength(3);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('should return empty array for empty input', async () => {

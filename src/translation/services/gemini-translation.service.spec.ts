@@ -157,7 +157,7 @@ describe('GeminiTranslationService', () => {
   });
 
   describe('translateBatch', () => {
-    it('should translate all texts sequentially', async () => {
+    it('should translate all texts in parallel', async () => {
       mockGenerateContent
         .mockResolvedValueOnce({ response: { text: () => '안녕하세요' } })
         .mockResolvedValueOnce({ response: { text: () => '세계' } });
@@ -165,6 +165,20 @@ describe('GeminiTranslationService', () => {
       const results = await service.translateBatch(['Hello', 'World'], 'en', 'ko');
       expect(results).toEqual(['안녕하세요', '세계']);
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it('should call translate for each text in parallel via Promise.all', async () => {
+      mockGenerateContent
+        .mockResolvedValueOnce({ response: { text: () => '하나' } })
+        .mockResolvedValueOnce({ response: { text: () => '둘' } })
+        .mockResolvedValueOnce({ response: { text: () => '셋' } });
+
+      const translateSpy = vi.spyOn(service, 'translate');
+      const results = await service.translateBatch(['One', 'Two', 'Three'], 'en', 'ko');
+
+      expect(translateSpy).toHaveBeenCalledTimes(3);
+      expect(results).toHaveLength(3);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
     });
 
     it('should return empty array for empty input', async () => {
