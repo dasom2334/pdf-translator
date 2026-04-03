@@ -135,18 +135,24 @@ export class PdfModule {}
    모든 작업이 완료되면 PR 본문을 아래 형식으로 업데이트한다.
    ```bash
    gh pr edit {PR_NUMBER} --body "$(cat <<'EOF'
-   ## 구현 내용
-   - {구현한 항목 목록}
+   ## Summary
+   {한 줄 요약 — 무엇을 했는지}
 
-   ## 검증 결과
-   - 총 {N}라운드 검수
-   - 수정 사항: {각 라운드별 주요 수정 내용, 1라운드 통과 시 "1라운드 통과"}
-   - 최종 판정: APPROVE
+   ## Problem
+   {이 PR이 왜 필요한지 — 어떤 기능이 없었거나 어떤 문제가 있었는지}
 
-   ## 테스트
-   - `pnpm build` ✅
-   - `pnpm lint` ✅
-   - `pnpm test` ✅ ({N}개 테스트 통과)
+   ## What Changed
+   - {실제로 구현/변경한 내용, 파일 단위로 정리}
+
+   ## Results
+   - 검수: 총 {N}라운드 ({각 라운드 핵심 수정 사항, 1라운드 통과 시 "1라운드 직통"})
+   - 최종 판정: APPROVE ✅
+
+   ## Note
+   {특이사항, 제약조건, 향후 과제 등 — 없으면 생략}
+
+   ## Testing
+   - pnpm build ✅ / pnpm lint ✅ / pnpm test ✅ ({N}개 테스트 통과)
    EOF
    )"
    ```
