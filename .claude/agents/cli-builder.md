@@ -153,7 +153,9 @@ export class AppModule {}
    {특이사항, 제약조건, 향후 과제 등 — 없으면 생략}
 
    ## Testing
-   - pnpm build ✅ / pnpm lint ✅ / pnpm test ✅ ({N}개 테스트 통과)
+   - [x] {테스트 케이스 설명} → {무엇이 보장되는지}
+   - [x] {테스트 케이스 설명} → {무엇이 보장되는지}
+   (작성한 모든 테스트 케이스를 나열. pnpm build ✅ / pnpm lint ✅ / pnpm test ✅ ({N}개 통과))
    EOF
    )"
    ```

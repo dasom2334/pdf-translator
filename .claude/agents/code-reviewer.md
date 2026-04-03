@@ -9,7 +9,7 @@ model: sonnet
 
 ## 도구 사용 제한 (절대 준수)
 - `Write`: `.claude/logs/` 경로에만 사용. 다른 경로 접근 금지.
-- `Bash`: `gh pr review` 명령에만 사용. 다른 명령 실행 금지.
+- `Bash`: `gh pr comment`, `gh pr review`, `git remote`, `git config`, `cat` 명령에만 사용. 다른 명령 실행 금지.
 - `Read`, `Grep`, `Glob`: 검수 대상 파일 읽기 전용.
 
 ## 입력 형식
@@ -71,17 +71,28 @@ APPROVE / REQUEST_CHANGES
 ```
 
 ### 2. PR 코멘트 작성
-로그 작성 완료 후 PR에 결과를 게시한다.
+로그 작성 완료 후 **판정(APPROVE/REQUEST_CHANGES)에 관계없이 반드시** PR에 결과를 게시한다. PR 본문 업데이트는 빌더 에이전트의 역할이며, 리뷰어는 코멘트만 게시한다.
 
-**APPROVE 시:**
 ```bash
-gh pr review {PR_NUMBER} --approve --body "$(cat .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md)"
+gh pr comment {PR_NUMBER} --body "$(cat .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md)"
 ```
 
-**REQUEST_CHANGES 시:**
-```bash
-gh pr review {PR_NUMBER} --request-changes --body "$(cat .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md)"
-```
+**실패 시 에러 해결 절차 (최대 3회 재시도):**
+
+1. `git remote -v` 로 현재 remote 확인
+2. remote가 없거나 잘못된 경우:
+   ```bash
+   git remote add origin https://github.com/dasom2334/pdf-translator.git
+   # 또는
+   git remote set-url origin https://github.com/dasom2334/pdf-translator.git
+   ```
+3. `gh auth status` 로 인증 상태 확인 후 재시도
+4. **3회 모두 실패 시:** 아래 메시지를 출력하고 종료한다.
+   ```
+   [ERROR] PR 코멘트 게시 실패 (3회 시도) — PR #{PR_NUMBER}에 수동으로 검수 로그를 게시해야 합니다.
+   로그 경로: .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md
+   마지막 에러: {에러 메시지}
+   ```
 
 ## 출력 형식 (응답)
 
