@@ -1,7 +1,7 @@
 /**
  * Lazy loader for pdfjs-dist.
  * pdfjs-dist v4+ is ESM-only; we use the legacy build which is compatible with CJS.
- * Wrapping in a function allows Jest to mock this module easily.
+ * Wrapping in a function allows the test runner to mock this module easily.
  */
 
 export const getPdfjs = (): { getDocument: (params: { data: Uint8Array }) => { promise: Promise<unknown> } } => {
