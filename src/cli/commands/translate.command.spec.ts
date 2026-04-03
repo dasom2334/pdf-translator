@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { CliModule } from '../cli.module';
 import { TranslateCommand } from './translate.command';

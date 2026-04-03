@@ -1,9 +1,10 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { MyMemoryTranslationService } from './mymemory-translation.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
-const mockFetch = jest.fn();
+const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 function makeMyMemoryResponse(translatedText: string, responseStatus = 200) {

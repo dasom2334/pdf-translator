@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { TranslationServiceFactory } from './translation-service.factory';
@@ -5,9 +6,9 @@ import { TranslationProvider } from '../../common/enums/translation-provider.enu
 import { MyMemoryTranslationService } from '../services/mymemory-translation.service';
 import { GeminiTranslationService } from '../services/gemini-translation.service';
 
-jest.mock('@google/generative-ai', () => {
-  const MockGoogleGenerativeAI = jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest.fn().mockReturnValue({ generateContent: jest.fn() }),
+vi.mock('@google/generative-ai', () => {
+  const MockGoogleGenerativeAI = vi.fn().mockImplementation(() => ({
+    getGenerativeModel: vi.fn().mockReturnValue({ generateContent: vi.fn() }),
   }));
   return { GoogleGenerativeAI: MockGoogleGenerativeAI };
 });
