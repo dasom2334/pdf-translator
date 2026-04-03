@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PdfExtractorService } from './pdf-extractor.service';
 
 // Mock the pdfjs loader utility
-const mockGetDocument = jest.fn();
-jest.mock('../utils/pdfjs-loader', () => ({
+const mockGetDocument = vi.fn();
+vi.mock('../utils/pdfjs-loader', () => ({
   getPdfjs: () => ({ getDocument: mockGetDocument }),
 }));
 
@@ -18,7 +18,7 @@ describe('PdfExtractorService', () => {
   // Non-PDF buffer (PNG magic bytes)
   const nonPdfBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
 
-  const mockGetViewport = jest.fn().mockReturnValue({ height: 792 });
+  const mockGetViewport = vi.fn().mockReturnValue({ height: 792 });
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -26,7 +26,7 @@ describe('PdfExtractorService', () => {
     }).compile();
 
     service = module.get<PdfExtractorService>(PdfExtractorService);
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     mockGetViewport.mockReturnValue({ height: 792 });
   });
 
@@ -48,9 +48,9 @@ describe('PdfExtractorService', () => {
     });
 
     it('should throw BadRequestException when PDF has no text content', async () => {
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: [] }),
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
@@ -91,9 +91,9 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
@@ -142,9 +142,9 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
@@ -169,9 +169,9 @@ describe('PdfExtractorService', () => {
         { type: 'endMarkedContent' },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
@@ -198,9 +198,9 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
-        getViewport: jest.fn().mockReturnValue({ height: pageHeight }),
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: vi.fn().mockReturnValue({ height: pageHeight }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
@@ -232,14 +232,15 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn()
+      const mockGetPage = vi
+        .fn()
         .mockResolvedValueOnce({
           getViewport: mockGetViewport,
-          getTextContent: jest.fn().mockResolvedValue({ items: page1Items }),
+          getTextContent: vi.fn().mockResolvedValue({ items: page1Items }),
         })
         .mockResolvedValueOnce({
           getViewport: mockGetViewport,
-          getTextContent: jest.fn().mockResolvedValue({ items: page2Items }),
+          getTextContent: vi.fn().mockResolvedValue({ items: page2Items }),
         });
 
       mockGetDocument.mockReturnValue({
@@ -280,9 +281,9 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 3, getPage: mockGetPage }),
@@ -305,9 +306,9 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn().mockResolvedValue({
+      const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
-        getTextContent: jest.fn().mockResolvedValue({ items: mockItems }),
+        getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
         promise: Promise.resolve({ numPages: 5, getPage: mockGetPage }),
@@ -352,14 +353,15 @@ describe('PdfExtractorService', () => {
         },
       ];
 
-      const mockGetPage = jest.fn()
+      const mockGetPage = vi
+        .fn()
         .mockResolvedValueOnce({
           getViewport: mockGetViewport,
-          getTextContent: jest.fn().mockResolvedValue({ items: page1Items }),
+          getTextContent: vi.fn().mockResolvedValue({ items: page1Items }),
         })
         .mockResolvedValueOnce({
           getViewport: mockGetViewport,
-          getTextContent: jest.fn().mockResolvedValue({ items: page2Items }),
+          getTextContent: vi.fn().mockResolvedValue({ items: page2Items }),
         });
 
       mockGetDocument.mockReturnValue({
