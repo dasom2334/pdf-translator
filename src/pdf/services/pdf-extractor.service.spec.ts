@@ -47,7 +47,7 @@ describe('PdfExtractorService', () => {
       );
     });
 
-    it('should throw BadRequestException when PDF has no text content', async () => {
+    it('should return empty array when PDF has no text content (image-only PDF)', async () => {
       const mockGetPage = vi.fn().mockResolvedValue({
         getViewport: mockGetViewport,
         getTextContent: vi.fn().mockResolvedValue({ items: [] }),
@@ -56,9 +56,8 @@ describe('PdfExtractorService', () => {
         promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
       });
 
-      await expect(service.extractBlocks(validPdfHeader)).rejects.toThrow(
-        BadRequestException,
-      );
+      const blocks = await service.extractBlocks(validPdfHeader);
+      expect(blocks).toEqual([]);
     });
 
     it('should throw InternalServerErrorException when PDF parsing fails', async () => {
