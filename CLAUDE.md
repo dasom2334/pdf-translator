@@ -161,6 +161,7 @@ assets/
 - Branch: `feature/[task-name]`
 - Commits: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`)
 - Always pass `pnpm run lint` + `pnpm test` before PR
+- **작업 내용이 다르면 브랜치를 분리하여 별도 PR로 올린다** — 하나의 브랜치에 관련 없는 변경을 섞지 않는다
 
 ## Exception Handling Rules
 - `BadRequestException` — 잘못된 입력 (빈 파일, 잘못된 언어 코드 등)
