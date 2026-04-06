@@ -4,19 +4,9 @@ import { BadRequestException } from '@nestjs/common';
 import { GeminiTranslationService } from './gemini-translation.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
-const { mockGenerateContent, MockGoogleGenerativeAI } = vi.hoisted(() => {
-  const mockGenerateContent = vi.fn();
-  const MockGoogleGenerativeAI = vi.fn().mockImplementation(() => ({
-    getGenerativeModel: vi.fn().mockReturnValue({ generateContent: mockGenerateContent }),
-  }));
-  return { mockGenerateContent, MockGoogleGenerativeAI };
-});
+vi.mock('@google/generative-ai');
 
-vi.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: MockGoogleGenerativeAI,
-}));
-
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, mockGenerateContent } from '@google/generative-ai';
 
 describe('GeminiTranslationService', () => {
   let service: GeminiTranslationService;

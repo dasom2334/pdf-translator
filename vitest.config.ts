@@ -6,6 +6,7 @@ export default defineConfig({
     root: './',
     environment: 'node',
     include: ['**/*.spec.ts', '**/*.test.ts', 'test/**/*.e2e-spec.ts'],
+    setupFiles: ['./vitest.setup.ts'],
   },
   plugins: [
     swc.vite({
