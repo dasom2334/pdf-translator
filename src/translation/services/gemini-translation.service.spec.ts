@@ -4,22 +4,22 @@ import { BadRequestException } from '@nestjs/common';
 import { GeminiTranslationService } from './gemini-translation.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
-vi.mock('@google/generative-ai', () => {
+const { mockGenerateContent, MockGoogleGenerativeAI } = vi.hoisted(() => {
   const mockGenerateContent = vi.fn();
-  const mockGetGenerativeModel = vi.fn().mockReturnValue({
-    generateContent: mockGenerateContent,
-  });
   const MockGoogleGenerativeAI = vi.fn().mockImplementation(() => ({
-    getGenerativeModel: mockGetGenerativeModel,
+    getGenerativeModel: vi.fn().mockReturnValue({ generateContent: mockGenerateContent }),
   }));
-  return { GoogleGenerativeAI: MockGoogleGenerativeAI };
+  return { mockGenerateContent, MockGoogleGenerativeAI };
 });
+
+vi.mock('@google/generative-ai', () => ({
+  GoogleGenerativeAI: MockGoogleGenerativeAI,
+}));
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 describe('GeminiTranslationService', () => {
   let service: GeminiTranslationService;
-  let mockGenerateContent: ReturnType<typeof vi.fn>;
 
   const originalEnv = process.env;
 
@@ -33,14 +33,6 @@ describe('GeminiTranslationService', () => {
 
     service = module.get<GeminiTranslationService>(GeminiTranslationService);
     service.onModuleInit();
-
-    const mockAIInstance = (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results[
-      (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results.length - 1
-    ].value as { getGenerativeModel: ReturnType<typeof vi.fn> };
-    const mockModel = mockAIInstance.getGenerativeModel({ model: 'gemini-1.5-flash' }) as {
-      generateContent: ReturnType<typeof vi.fn>;
-    };
-    mockGenerateContent = mockModel.generateContent;
   });
 
   afterEach(() => {
@@ -167,18 +159,27 @@ describe('GeminiTranslationService', () => {
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     });
 
-    it('should call translate for each text in parallel via Promise.all', async () => {
+    it('should call translate for each text with correct arguments', async () => {
       mockGenerateContent
         .mockResolvedValueOnce({ response: { text: () => '하나' } })
         .mockResolvedValueOnce({ response: { text: () => '둘' } })
         .mockResolvedValueOnce({ response: { text: () => '셋' } });
 
       const translateSpy = vi.spyOn(service, 'translate');
-      const results = await service.translateBatch(['One', 'Two', 'Three'], 'en', 'ko');
+      await service.translateBatch(['One', 'Two', 'Three'], 'en', 'ko');
 
       expect(translateSpy).toHaveBeenCalledTimes(3);
-      expect(results).toHaveLength(3);
-      expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+      expect(translateSpy).toHaveBeenCalledWith('One', 'en', 'ko');
+      expect(translateSpy).toHaveBeenCalledWith('Two', 'en', 'ko');
+      expect(translateSpy).toHaveBeenCalledWith('Three', 'en', 'ko');
+    });
+
+    it('should return results in the same order as input texts', async () => {
+      const translateSpy = vi.spyOn(service, 'translate');
+      translateSpy.mockResolvedValueOnce('안녕').mockResolvedValueOnce('세계');
+
+      const result = await service.translateBatch(['hello', 'world'], 'en', 'ko');
+      expect(result).toEqual(['안녕', '세계']);
     });
 
     it('should return empty array for empty input', async () => {
