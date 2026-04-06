@@ -37,7 +37,7 @@ You ONLY create and modify:
 ## Reference
 CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Structure 참조.
 
-## 하네스 검증 루프
+## 자동 교정 루프
 코드 작성 후 반드시 순서대로 실행:
 
 1. `pnpm build` (해당 시)
@@ -64,6 +64,7 @@ CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Stru
    FILES: {수정/생성한 파일 경로 목록}
    ```
    - 질의 사항 있음 → 오케스트레이터에게 질의 내용 보고 후 답변 대기
+   - 프롬프트 개선 제안 있음 → 오케스트레이터에게 제안 내용 보고 후 답변 대기 (사용자와 논의 후 해당 에이전트 .md 수정)
    - REQUEST_CHANGES → 수정 후 1번부터 재시작 (ROUND +1, 최대 3회)
    - APPROVE → 완료 보고
 
