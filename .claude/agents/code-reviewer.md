@@ -73,8 +73,23 @@ APPROVE / REQUEST_CHANGES
 ### 2. PR 코멘트 작성
 로그 작성 완료 후 **판정(APPROVE/REQUEST_CHANGES)에 관계없이 반드시** PR에 결과를 게시한다. PR 본문 업데이트는 빌더 에이전트의 역할이며, 리뷰어는 코멘트만 게시한다.
 
+**ROUND = 1:** 새 코멘트 생성
 ```bash
-gh pr comment {PR_NUMBER} --body "$(cat .claude/logs/review-{BRANCH}-R{ROUND}-{YYYYMMDD-HHMM}.md)"
+gh pr comment {PR_NUMBER} --body "..."
+```
+
+**ROUND > 1:** 이전 라운드 코멘트를 수정 (새 코멘트 추가 금지). 이전 코멘트 ID는 `gh pr view {PR_NUMBER} --comments --json comments`로 확인한다.
+```bash
+gh api repos/dasom2334/pdf-translator/issues/comments/{COMMENT_ID} -X PATCH -f body="..."
+```
+
+**ROUND > 1이고 CONTEXT(변경 배경)가 제공된 경우:** 코멘트에 아래 섹션을 반드시 포함한다.
+```
+## 변경 배경 — {논의 주체} 간 논의
+
+**문제 제기:** {누가 어떤 문제를 제기했는지}
+**문제:** {왜 문제인지}
+**결론:** {어떤 방향으로 결론이 났는지}
 ```
 
 **실패 시 에러 해결 절차 (최대 3회 재시도):**
