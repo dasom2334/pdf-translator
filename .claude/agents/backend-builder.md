@@ -29,6 +29,8 @@ You ONLY create and modify:
 - `@Injectable()` 데코레이터 필수
 - 모든 모듈/서비스/컨트롤러에 `.spec.ts` 작성 (DI resolve 확인)
 - Conventional commits: `feat:`, `fix:`, `chore:`, etc.
+- **모든 문서(PR 본문, PR 코멘트, 로그 파일)는 한국어로 작성**
+- **"논의"를 언급할 때는 반드시 주체를 명시** — "사용자와 에이전트 간 논의" 또는 "에이전트(작업자)와 리뷰어 간 논의" 등
 
 ## Shared Contracts
 CLAUDE.md의 Shared Contracts 섹션 참조.

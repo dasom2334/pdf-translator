@@ -11,6 +11,9 @@ description: "Phase 2-1: PDF 고도화(E-2+G-3+G-5) + 번역 고도화(T-3+T-4) 
 ```
 Agent(subagent_type="pdf-builder", isolation="worktree", prompt="E-2 + G-3 + G-5 작업을 수행하세요.
 
+## 시작 전 필수: 최신 main 동기화
+git fetch origin && git checkout main && git pull origin main
+
 Branch: feature/pdf-enhanced
 
 1. 추출 품질 개선 (E-2, PdfExtractorService 수정):
@@ -31,9 +34,21 @@ Branch: feature/pdf-enhanced
 
 4. 유닛 테스트
 
-하네스 루프: pnpm build → pnpm lint → pnpm test 통과 후 commit → push → PR 생성.")
+## 자동 교정 + 리뷰 루프
+다음을 APPROVE가 날 때까지 반복하세요:
+1. pnpm build → pnpm lint → pnpm test 통과 확인 (실패 시 수정 반복)
+2. git commit → push (최초 1회는 PR 생성, 이후에는 push만)
+3. Agent(subagent_type="code-reviewer")로 PR 리뷰 요청 (리뷰어가 🔍 문제 발견 코멘트 게시)
+4. 판정이 REQUEST_CHANGES면:
+   a. 이슈 수정
+   b. PR에 ✅ 수정 완료 코멘트 게시
+   c. 1번으로 돌아가기
+5. 판정이 APPROVE면: 완료 보고 후 종료")
 
 Agent(subagent_type="translation-builder", isolation="worktree", prompt="T-3 + T-4 작업을 수행하세요.
+
+## 시작 전 필수: 최신 main 동기화
+git fetch origin && git checkout main && git pull origin main
 
 Branch: feature/translation-enhanced
 
@@ -49,5 +64,14 @@ Branch: feature/translation-enhanced
 
 3. 유닛 테스트
 
-하네스 루프: pnpm build → pnpm lint → pnpm test 통과 후 commit → push → PR 생성.")
+## 자동 교정 + 리뷰 루프
+다음을 APPROVE가 날 때까지 반복하세요:
+1. pnpm build → pnpm lint → pnpm test 통과 확인 (실패 시 수정 반복)
+2. git commit → push (최초 1회는 PR 생성, 이후에는 push만)
+3. Agent(subagent_type="code-reviewer")로 PR 리뷰 요청 (리뷰어가 🔍 문제 발견 코멘트 게시)
+4. 판정이 REQUEST_CHANGES면:
+   a. 이슈 수정
+   b. PR에 ✅ 수정 완료 코멘트 게시
+   c. 1번으로 돌아가기
+5. 판정이 APPROVE면: 완료 보고 후 종료")
 ```

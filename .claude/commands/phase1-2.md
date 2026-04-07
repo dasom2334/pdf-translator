@@ -9,6 +9,9 @@ description: "Phase 1-2: overlay PDF 생성(G-1+G-2). 전제조건: phase1-1 머
 ```
 Agent(subagent_type="pdf-builder", isolation="worktree", prompt="G-1 + G-2 작업을 수행하세요.
 
+## 시작 전 필수: 최신 main 동기화
+git fetch origin && git checkout main && git pull origin main
+
 Branch: feature/pdf-overlay
 
 1. PdfOverlayGeneratorService 구현 (src/pdf/services/pdf-overlay-generator.service.ts):
@@ -25,5 +28,14 @@ Branch: feature/pdf-overlay
 
 3. 유닛 테스트 (happy path + 오버플로 케이스)
 
-하네스 루프: pnpm build → pnpm lint → pnpm test 통과 후 commit → push → PR 생성.")
+## 자동 교정 + 리뷰 루프
+다음을 APPROVE가 날 때까지 반복하세요:
+1. pnpm build → pnpm lint → pnpm test 통과 확인 (실패 시 수정 반복)
+2. git commit → push (최초 1회는 PR 생성, 이후에는 push만)
+3. Agent(subagent_type="code-reviewer")로 PR 리뷰 요청 (리뷰어가 🔍 문제 발견 코멘트 게시)
+4. 판정이 REQUEST_CHANGES면:
+   a. 이슈 수정
+   b. PR에 ✅ 수정 완료 코멘트 게시
+   c. 1번으로 돌아가기
+5. 판정이 APPROVE면: 완료 보고 후 종료")
 ```
