@@ -9,6 +9,29 @@ import { getPdfjs } from '../utils/pdfjs-loader';
 // PDF magic bytes: %PDF
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
 
+/**
+ * Y-coordinate tolerance (in points) for grouping items on the same line.
+ */
+const SAME_LINE_THRESHOLD = 2;
+
+/**
+ * Fraction of page height used to define header/footer zones.
+ * Top MARGIN_RATIO of the page = header zone, bottom MARGIN_RATIO = footer zone.
+ */
+const HEADER_FOOTER_MARGIN_RATIO = 0.07;
+
+/**
+ * Minimum number of pages on which a text pattern must appear to be considered
+ * a header or footer (repeating pattern).
+ */
+const MIN_REPEAT_PAGES = 2;
+
+/**
+ * Maximum horizontal distance (in points) between two adjacent blocks to be
+ * merged into one paragraph block.
+ */
+const MERGE_GAP_THRESHOLD = 20;
+
 @Injectable()
 export class PdfExtractorService implements IPdfExtractor {
   private validateBuffer(fileBuffer: Buffer): void {
@@ -57,7 +80,17 @@ export class PdfExtractorService implements IPdfExtractor {
     return Array.from(pages).sort((a, b) => a - b);
   }
 
-  private async extractBlocksFromPage(
+  /**
+   * Sanitize text by collapsing excess whitespace and removing control characters.
+   */
+  private sanitizeText(text: string): string {
+    return text
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') // remove control chars
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private async extractRawBlocksFromPage(
     pdfPage: unknown,
     pageNumber: number,
   ): Promise<TextBlock[]> {
@@ -87,7 +120,8 @@ export class PdfExtractorService implements IPdfExtractor {
         continue;
       }
 
-      const text = item.str.trim();
+      const rawText = item.str;
+      const text = this.sanitizeText(rawText);
       if (!text) {
         continue;
       }
@@ -123,6 +157,137 @@ export class PdfExtractorService implements IPdfExtractor {
     return blocks;
   }
 
+  /**
+   * Sort blocks in reading order: top-to-bottom (Y), then left-to-right (X).
+   * Items on the same line (within SAME_LINE_THRESHOLD) are grouped first.
+   */
+  private sortBlocksInReadingOrder(blocks: TextBlock[]): TextBlock[] {
+    return [...blocks].sort((a, b) => {
+      const yDiff = a.y - b.y;
+      if (Math.abs(yDiff) <= SAME_LINE_THRESHOLD) {
+        return a.x - b.x;
+      }
+      return yDiff;
+    });
+  }
+
+  /**
+   * Detect header and footer texts that appear on multiple pages.
+   * Returns a Set of text strings to be excluded.
+   */
+  private detectHeaderFooterTexts(
+    pageBlocks: TextBlock[][],
+    pageHeights: number[],
+  ): Set<string> {
+    const textPageCount = new Map<string, number>();
+
+    for (let i = 0; i < pageBlocks.length; i++) {
+      const blocks = pageBlocks[i];
+      const pageHeight = pageHeights[i];
+      const margin = pageHeight * HEADER_FOOTER_MARGIN_RATIO;
+
+      const seenOnThisPage = new Set<string>();
+      for (const block of blocks) {
+        // Header zone: y < margin (top of page in top-left origin)
+        // Footer zone: y > pageHeight - margin
+        const isInHeaderZone = block.y < margin;
+        const isInFooterZone = block.y > pageHeight - margin;
+
+        if (isInHeaderZone || isInFooterZone) {
+          if (!seenOnThisPage.has(block.text)) {
+            seenOnThisPage.add(block.text);
+            textPageCount.set(
+              block.text,
+              (textPageCount.get(block.text) ?? 0) + 1,
+            );
+          }
+        }
+      }
+    }
+
+    const repeatedTexts = new Set<string>();
+    for (const [text, count] of textPageCount) {
+      if (count >= MIN_REPEAT_PAGES) {
+        repeatedTexts.add(text);
+      }
+    }
+    return repeatedTexts;
+  }
+
+  /**
+   * Merge horizontally adjacent blocks on the same line into paragraph blocks.
+   * Two blocks are merged if they are on the same line (within SAME_LINE_THRESHOLD)
+   * and the horizontal gap between them is within MERGE_GAP_THRESHOLD.
+   */
+  private mergeAdjacentBlocks(blocks: TextBlock[]): TextBlock[] {
+    if (blocks.length === 0) return [];
+
+    const result: TextBlock[] = [];
+    let current = { ...blocks[0] };
+
+    for (let i = 1; i < blocks.length; i++) {
+      const next = blocks[i];
+      const yDiff = Math.abs(next.y - current.y);
+      const gap = next.x - (current.x + current.width);
+
+      if (yDiff <= SAME_LINE_THRESHOLD && gap <= MERGE_GAP_THRESHOLD && gap >= 0) {
+        // Merge next into current
+        const mergedWidth = next.x + next.width - current.x;
+        current = {
+          ...current,
+          text: current.text + ' ' + next.text,
+          width: mergedWidth,
+          height: Math.max(current.height, next.height),
+          fontSize: Math.max(current.fontSize, next.fontSize),
+        };
+      } else {
+        result.push(current);
+        current = { ...next };
+      }
+    }
+    result.push(current);
+
+    return result;
+  }
+
+  private async extractBlocksFromPage(
+    pdfPage: unknown,
+    pageNumber: number,
+  ): Promise<{ blocks: TextBlock[]; pageHeight: number }> {
+    const page = pdfPage as {
+      getViewport: (opts: { scale: number }) => { height: number };
+    };
+    const viewport = page.getViewport({ scale: 1.0 });
+    const pageHeight = viewport.height;
+
+    const rawBlocks = await this.extractRawBlocksFromPage(pdfPage, pageNumber);
+    return { blocks: rawBlocks, pageHeight };
+  }
+
+  private postProcessAllPages(
+    pageBlocks: TextBlock[][],
+    pageHeights: number[],
+  ): TextBlock[][] {
+    // Only detect headers/footers when there are multiple pages
+    const headerFooterTexts =
+      pageBlocks.length >= MIN_REPEAT_PAGES
+        ? this.detectHeaderFooterTexts(pageBlocks, pageHeights)
+        : new Set<string>();
+
+    return pageBlocks.map((blocks) => {
+      // 1. Remove header/footer blocks
+      const filtered = blocks.filter(
+        (b) => !headerFooterTexts.has(b.text),
+      );
+
+      // 2. Sort in reading order
+      const sorted = this.sortBlocksInReadingOrder(filtered);
+
+      // 3. Merge adjacent blocks
+      return this.mergeAdjacentBlocks(sorted);
+    });
+  }
+
   async extractBlocks(fileBuffer: Buffer): Promise<TextBlock[]> {
     this.validateBuffer(fileBuffer);
 
@@ -142,13 +307,18 @@ export class PdfExtractorService implements IPdfExtractor {
       );
     }
 
-    const allBlocks: TextBlock[] = [];
+    const rawPageBlocks: TextBlock[][] = [];
+    const pageHeights: number[] = [];
 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       try {
         const page = await pdf.getPage(pageNum);
-        const blocks = await this.extractBlocksFromPage(page, pageNum);
-        allBlocks.push(...blocks);
+        const { blocks, pageHeight } = await this.extractBlocksFromPage(
+          page,
+          pageNum,
+        );
+        rawPageBlocks.push(blocks);
+        pageHeights.push(pageHeight);
       } catch (err) {
         if (
           err instanceof BadRequestException ||
@@ -162,7 +332,8 @@ export class PdfExtractorService implements IPdfExtractor {
       }
     }
 
-    return allBlocks;
+    const processedPageBlocks = this.postProcessAllPages(rawPageBlocks, pageHeights);
+    return processedPageBlocks.flat();
   }
 
   async extractBlocksByPages(
@@ -192,13 +363,18 @@ export class PdfExtractorService implements IPdfExtractor {
         ? this.parsePageRange(pageRange, pdf.numPages)
         : Array.from({ length: pdf.numPages }, (_, i) => i + 1);
 
-    const result: TextBlock[][] = [];
+    const rawPageBlocks: TextBlock[][] = [];
+    const pageHeights: number[] = [];
 
     for (const pageNum of pageNumbers) {
       try {
         const page = await pdf.getPage(pageNum);
-        const blocks = await this.extractBlocksFromPage(page, pageNum);
-        result.push(blocks);
+        const { blocks, pageHeight } = await this.extractBlocksFromPage(
+          page,
+          pageNum,
+        );
+        rawPageBlocks.push(blocks);
+        pageHeights.push(pageHeight);
       } catch (err) {
         if (
           err instanceof BadRequestException ||
@@ -212,6 +388,6 @@ export class PdfExtractorService implements IPdfExtractor {
       }
     }
 
-    return result;
+    return this.postProcessAllPages(rawPageBlocks, pageHeights);
   }
 }

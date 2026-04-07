@@ -218,4 +218,29 @@ describe('PdfOverlayGeneratorService', () => {
     await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // G-5: Content stream text removal — output is still valid PDF
+  // -------------------------------------------------------------------------
+
+  it('should produce a valid PDF after G-5 content stream text removal', async () => {
+    const pdfBuffer = await createMinimalPdfBuffer();
+    const outputPath = path.join(tmpDir, 'output-g5.pdf');
+    const blocks: TextBlock[] = [makeBlock({ translatedText: 'Translation' })];
+
+    await service.overlay(pdfBuffer, blocks, outputPath);
+
+    expect(fs.existsSync(outputPath)).toBe(true);
+    const written = fs.readFileSync(outputPath);
+    expect(written[0]).toBe(0x25); // %PDF
+    expect(written[1]).toBe(0x50);
+  });
+
+  it('should not throw when overlay is called with empty blocks list', async () => {
+    const pdfBuffer = await createMinimalPdfBuffer();
+    const outputPath = path.join(tmpDir, 'output-empty.pdf');
+
+    await expect(service.overlay(pdfBuffer, [], outputPath)).resolves.not.toThrow();
+    expect(fs.existsSync(outputPath)).toBe(true);
+  });
 });

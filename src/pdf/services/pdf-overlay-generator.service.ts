@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import {
   Injectable,
   InternalServerErrorException,
@@ -21,17 +22,155 @@ const DEFAULT_FONT_PATH = path.resolve(
   '../../../../assets/fonts/NotoSansCJKkr-Regular.otf',
 );
 
+/**
+ * Remove all BT...ET text operator sequences from a PDF content stream buffer.
+ * This erases original text from the stream while preserving graphics/images.
+ */
+function removeTextOperatorsFromStream(streamBuf: Buffer): Buffer {
+  // We work on the raw bytes as a string for regex-based BT...ET removal.
+  // Using latin1 encoding to preserve raw bytes faithfully.
+  const content = streamBuf.toString('binary');
+
+  // Remove BT ... ET blocks (including nested/multiline)
+  // BT and ET are always full tokens separated by whitespace
+  let cleaned = content;
+  for (;;) {
+    const btIdx = cleaned.indexOf('BT');
+    if (btIdx === -1) break;
+
+    // Verify BT is a standalone operator (preceded by whitespace or start, followed by whitespace)
+    const before = btIdx === 0 ? '\n' : cleaned[btIdx - 1];
+    const after = cleaned[btIdx + 2];
+    if (!/[\s\r\n]/.test(before) || !/[\s\r\n]/.test(after)) {
+      // Not a standalone BT token — skip ahead to avoid infinite loop
+      const rest = cleaned.indexOf('BT', btIdx + 1);
+      if (rest === -1) break;
+      continue;
+    }
+
+    const etIdx = cleaned.indexOf('ET', btIdx + 2);
+    if (etIdx === -1) break;
+
+    // Verify ET is also a standalone operator
+    const beforeEt = etIdx === 0 ? '\n' : cleaned[etIdx - 1];
+    const afterEt =
+      etIdx + 2 >= cleaned.length ? '\n' : cleaned[etIdx + 2];
+    if (!/[\s\r\n]/.test(beforeEt) || !/[\s\r\n]/.test(afterEt)) {
+      // Not standalone ET — find next ET
+      const nextEt = cleaned.indexOf('ET', etIdx + 1);
+      if (nextEt === -1) break;
+      continue;
+    }
+
+    // Replace the BT...ET block (inclusive) with whitespace to preserve offsets
+    const block = cleaned.slice(btIdx, etIdx + 2);
+    cleaned =
+      cleaned.slice(0, btIdx) +
+      ' '.repeat(block.length) +
+      cleaned.slice(etIdx + 2);
+  }
+
+  return Buffer.from(cleaned, 'binary');
+}
+
+/**
+ * Given a raw PDF buffer, attempt to remove text operators from all page
+ * content streams using low-level byte manipulation.
+ *
+ * Returns a new Buffer with text operators removed, or the original buffer
+ * if parsing fails (so the overlay white-box approach can be used as fallback).
+ */
+function removeTextFromPdfStreams(pdfBytes: Buffer): Buffer {
+  try {
+    // Convert to string (latin1 to preserve bytes) for regex operations
+    let pdf = pdfBytes.toString('binary');
+
+    // Find all stream...endstream pairs
+    const streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
+    let match: RegExpExecArray | null;
+    const replacements: Array<{ start: number; end: number; replacement: string }> = [];
+
+    while ((match = streamRegex.exec(pdf)) !== null) {
+      // Handle \r\n vs \n
+      const headerEnd = pdf.indexOf('\n', match.index + 6);
+      const dataStart = headerEnd + 1;
+      const dataEnd = match.index + match[0].lastIndexOf('endstream') - 1;
+
+      if (dataEnd <= dataStart) continue;
+
+      const rawData = Buffer.from(pdf.slice(dataStart, dataEnd), 'binary');
+
+      // Try to decompress (FlateDecode / zlib) and check if it's a content stream
+      let streamContent: Buffer;
+      let isCompressed = false;
+
+      try {
+        streamContent = zlib.inflateSync(rawData);
+        isCompressed = true;
+      } catch {
+        // Not compressed or different compression — try raw
+        streamContent = rawData;
+      }
+
+      // Check if this stream contains PDF text operators (BT/ET)
+      const contentStr = streamContent.toString('binary');
+      if (!contentStr.includes('BT')) {
+        continue; // Not a content stream with text — skip
+      }
+
+      // Remove text operators
+      const cleaned = removeTextOperatorsFromStream(streamContent);
+
+      // Re-compress if original was compressed
+      let newData: Buffer;
+      if (isCompressed) {
+        try {
+          newData = zlib.deflateSync(cleaned);
+        } catch {
+          newData = cleaned;
+        }
+      } else {
+        newData = cleaned;
+      }
+
+      // Replace the stream data with text-operator-removed content
+      const newDataStr = newData.toString('binary');
+      replacements.push({
+        start: dataStart,
+        end: dataEnd,
+        replacement: newDataStr,
+      });
+    }
+
+    // Apply replacements in reverse order to preserve indices
+    const parts: string[] = [];
+    let lastEnd = 0;
+    const sortedReplacements = [...replacements].sort(
+      (a, b) => a.start - b.start,
+    );
+
+    for (const rep of sortedReplacements) {
+      parts.push(pdf.slice(lastEnd, rep.start));
+      parts.push(rep.replacement);
+      lastEnd = rep.end;
+    }
+    parts.push(pdf.slice(lastEnd));
+    pdf = parts.join('');
+
+    return Buffer.from(pdf, 'binary');
+  } catch {
+    // If anything fails, return original buffer unchanged
+    return pdfBytes;
+  }
+}
+
 @Injectable()
 export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
   private readonly logger = new Logger(PdfOverlayGeneratorService.name);
+
   /**
    * Fit text into the given width using font size shrinking and ellipsis truncation.
    * Returns the adjusted text and font size to use.
-   *
-   * @param text         The text to fit
-   * @param boxWidth     Available width in points
-   * @param originalSize The preferred font size
-   * @param measureWidth A function(text, fontSize) => number returning text width
    */
   private fitText(
     text: string,
@@ -72,13 +211,22 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     outputPath: string,
     options?: PdfGenerateOptions,
   ): Promise<void> {
+    // G-5: Remove text from content streams first to handle non-white backgrounds.
+    // Fall back to white-box approach if stream manipulation fails.
+    const processedBuffer = removeTextFromPdfStreams(originalBuffer);
+
     let pdfDoc: PDFDocument;
     try {
-      pdfDoc = await PDFDocument.load(originalBuffer);
-    } catch (err) {
-      throw new InternalServerErrorException(
-        `Failed to load PDF for overlay: ${(err as Error).message}`,
-      );
+      pdfDoc = await PDFDocument.load(processedBuffer);
+    } catch {
+      // If loading the stream-cleaned PDF fails, fall back to original
+      try {
+        pdfDoc = await PDFDocument.load(originalBuffer);
+      } catch (err) {
+        throw new InternalServerErrorException(
+          `Failed to load PDF for overlay: ${(err as Error).message}`,
+        );
+      }
     }
 
     // Register fontkit for custom font embedding
@@ -126,16 +274,6 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       // Therefore: pdfY = pageHeight - block.y - block.height
       const pdfY = pageHeight - block.y - block.height;
 
-      // Draw white rectangle to cover original text (POC: works on white-background PDFs only)
-      page.drawRectangle({
-        x: block.x,
-        y: pdfY,
-        width: block.width,
-        height: block.height,
-        color: rgb(1, 1, 1),
-        opacity: 1,
-      });
-
       // Measure function for overflow handling
       const measureWidth = (t: string, size: number): number => {
         try {
@@ -152,6 +290,10 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
         measureWidth,
       );
 
+      if (!fittedText) {
+        continue;
+      }
+
       // Draw translated text at same position
       // Align baseline: center vertically within the block
       const textHeight = fittedSize;
@@ -166,9 +308,6 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
           color: rgb(0, 0, 0),
         });
       } catch (err) {
-        // If the font cannot encode the text (e.g. CJK chars with fallback font),
-        // skip rendering this block's text. The white rectangle has already been
-        // drawn, so the original text is still hidden.
         this.logger.warn(
           `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
         );
