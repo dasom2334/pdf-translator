@@ -93,9 +93,9 @@ export class PdfExtractorService implements IPdfExtractor {
   private async extractRawBlocksFromPage(
     pdfPage: unknown,
     pageNumber: number,
+    pageHeight: number,
   ): Promise<TextBlock[]> {
     const page = pdfPage as {
-      getViewport: (opts: { scale: number }) => { height: number };
       getTextContent: () => Promise<{
         items: Array<{
           str?: string;
@@ -107,9 +107,6 @@ export class PdfExtractorService implements IPdfExtractor {
         }>;
       }>;
     };
-
-    const viewport = page.getViewport({ scale: 1.0 });
-    const pageHeight = viewport.height;
 
     const textContent = await page.getTextContent();
     const blocks: TextBlock[] = [];
@@ -257,10 +254,11 @@ export class PdfExtractorService implements IPdfExtractor {
     const page = pdfPage as {
       getViewport: (opts: { scale: number }) => { height: number };
     };
+    // Call getViewport exactly once; pass pageHeight down to avoid duplicate calls.
     const viewport = page.getViewport({ scale: 1.0 });
     const pageHeight = viewport.height;
 
-    const rawBlocks = await this.extractRawBlocksFromPage(pdfPage, pageNumber);
+    const rawBlocks = await this.extractRawBlocksFromPage(pdfPage, pageNumber, pageHeight);
     return { blocks: rawBlocks, pageHeight };
   }
 

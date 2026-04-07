@@ -34,33 +34,39 @@ function removeTextOperatorsFromStream(streamBuf: Buffer): Buffer {
   // Remove BT ... ET blocks (including nested/multiline)
   // BT and ET are always full tokens separated by whitespace
   let cleaned = content;
+  let searchFrom = 0;
   for (;;) {
-    const btIdx = cleaned.indexOf('BT');
+    const btIdx = cleaned.indexOf('BT', searchFrom);
     if (btIdx === -1) break;
 
     // Verify BT is a standalone operator (preceded by whitespace or start, followed by whitespace)
     const before = btIdx === 0 ? '\n' : cleaned[btIdx - 1];
     const after = cleaned[btIdx + 2];
     if (!/[\s\r\n]/.test(before) || !/[\s\r\n]/.test(after)) {
-      // Not a standalone BT token — skip ahead to avoid infinite loop
-      const rest = cleaned.indexOf('BT', btIdx + 1);
-      if (rest === -1) break;
+      // Not a standalone BT token — advance past this position to avoid infinite loop
+      searchFrom = btIdx + 2;
       continue;
     }
 
-    const etIdx = cleaned.indexOf('ET', btIdx + 2);
+    let etSearchFrom = btIdx + 2;
+    let etIdx = -1;
+    for (;;) {
+      const candidateEt = cleaned.indexOf('ET', etSearchFrom);
+      if (candidateEt === -1) break;
+
+      // Verify ET is also a standalone operator
+      const beforeEt = candidateEt === 0 ? '\n' : cleaned[candidateEt - 1];
+      const afterEt =
+        candidateEt + 2 >= cleaned.length ? '\n' : cleaned[candidateEt + 2];
+      if (/[\s\r\n]/.test(beforeEt) && /[\s\r\n]/.test(afterEt)) {
+        etIdx = candidateEt;
+        break;
+      }
+      // Not standalone ET — advance past this position
+      etSearchFrom = candidateEt + 2;
+    }
+
     if (etIdx === -1) break;
-
-    // Verify ET is also a standalone operator
-    const beforeEt = etIdx === 0 ? '\n' : cleaned[etIdx - 1];
-    const afterEt =
-      etIdx + 2 >= cleaned.length ? '\n' : cleaned[etIdx + 2];
-    if (!/[\s\r\n]/.test(beforeEt) || !/[\s\r\n]/.test(afterEt)) {
-      // Not standalone ET — find next ET
-      const nextEt = cleaned.indexOf('ET', etIdx + 1);
-      if (nextEt === -1) break;
-      continue;
-    }
 
     // Replace the BT...ET block (inclusive) with whitespace to preserve offsets
     const block = cleaned.slice(btIdx, etIdx + 2);
@@ -68,6 +74,9 @@ function removeTextOperatorsFromStream(streamBuf: Buffer): Buffer {
       cleaned.slice(0, btIdx) +
       ' '.repeat(block.length) +
       cleaned.slice(etIdx + 2);
+
+    // After replacement, continue searching from the same position (content shifted)
+    searchFrom = btIdx;
   }
 
   return Buffer.from(cleaned, 'binary');
@@ -88,7 +97,15 @@ function removeTextFromPdfStreams(pdfBytes: Buffer): Buffer {
     // Find all stream...endstream pairs
     const streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
     let match: RegExpExecArray | null;
-    const replacements: Array<{ start: number; end: number; replacement: string }> = [];
+    // Each replacement also carries the location of the /Length value to update
+    const replacements: Array<{
+      start: number;
+      end: number;
+      replacement: string;
+      lengthValueStart: number;
+      lengthValueEnd: number;
+      newLength: number;
+    }> = [];
 
     while ((match = streamRegex.exec(pdf)) !== null) {
       // Handle \r\n vs \n
@@ -133,29 +150,69 @@ function removeTextFromPdfStreams(pdfBytes: Buffer): Buffer {
         newData = cleaned;
       }
 
+      // Locate the /Length entry in the stream dictionary.
+      // The dictionary ends at the 'stream' keyword; search backwards from match.index.
+      const dictRegion = pdf.slice(0, match.index);
+      const lengthMatch = /\/Length\s+(\d+)/.exec(
+        dictRegion.slice(Math.max(0, dictRegion.length - 512)),
+      );
+
       // Replace the stream data with text-operator-removed content
       const newDataStr = newData.toString('binary');
-      replacements.push({
-        start: dataStart,
-        end: dataEnd,
-        replacement: newDataStr,
-      });
+
+      if (lengthMatch) {
+        // Absolute offset of the matched /Length value within full pdf string
+        const regionOffset = Math.max(0, dictRegion.length - 512);
+        const lengthValueStart =
+          regionOffset +
+          lengthMatch.index +
+          lengthMatch[0].indexOf(lengthMatch[1]);
+        const lengthValueEnd = lengthValueStart + lengthMatch[1].length;
+
+        replacements.push({
+          start: dataStart,
+          end: dataEnd,
+          replacement: newDataStr,
+          lengthValueStart,
+          lengthValueEnd,
+          newLength: newData.length,
+        });
+      } else {
+        // No /Length found — still replace data, skip length update
+        replacements.push({
+          start: dataStart,
+          end: dataEnd,
+          replacement: newDataStr,
+          lengthValueStart: -1,
+          lengthValueEnd: -1,
+          newLength: newData.length,
+        });
+      }
     }
 
-    // Apply replacements in reverse order to preserve indices
-    const parts: string[] = [];
-    let lastEnd = 0;
+    // Apply all replacements. Because /Length entries always appear BEFORE
+    // their stream data in the PDF, we process in reverse offset order so
+    // earlier indices remain valid as we splice the string.
     const sortedReplacements = [...replacements].sort(
-      (a, b) => a.start - b.start,
+      (a, b) => b.start - a.start, // descending — process last stream first
     );
 
     for (const rep of sortedReplacements) {
-      parts.push(pdf.slice(lastEnd, rep.start));
-      parts.push(rep.replacement);
-      lastEnd = rep.end;
+      // 1. Replace stream data
+      pdf =
+        pdf.slice(0, rep.start) +
+        rep.replacement +
+        pdf.slice(rep.end);
+
+      // 2. Update /Length value (its offset is before the stream data, so still valid)
+      if (rep.lengthValueStart >= 0) {
+        const newLengthStr = String(rep.newLength);
+        pdf =
+          pdf.slice(0, rep.lengthValueStart) +
+          newLengthStr +
+          pdf.slice(rep.lengthValueEnd);
+      }
     }
-    parts.push(pdf.slice(lastEnd));
-    pdf = parts.join('');
 
     return Buffer.from(pdf, 'binary');
   } catch {
