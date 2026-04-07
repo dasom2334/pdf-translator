@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ITranslationService } from '../interfaces/translation-service.interface';
 import { TranslationException } from '../../common/exceptions/translation.exception';
+import { GlossaryService } from './glossary.service';
+import { postProcessTranslation, splitIntoChunksWithOverlap } from '../utils/translation.utils';
 
 const MYMEMORY_API_URL = 'https://api.mymemory.translated.net/get';
 const MAX_CHUNK_SIZE = 500;
+const OVERLAP_SENTENCES = 1;
 const DAILY_LIMIT_STATUS = 429;
 
 const SUPPORTED_LANGUAGES = [
@@ -24,51 +27,7 @@ const SUPPORTED_LANGUAGES = [
 export class MyMemoryTranslationService implements ITranslationService {
   private readonly logger = new Logger(MyMemoryTranslationService.name);
 
-  private splitIntoChunks(text: string): string[] {
-    const chunks: string[] = [];
-    // Split by paragraph boundaries first
-    const paragraphs = text.split(/\n\n+/);
-
-    let currentChunk = '';
-    for (const paragraph of paragraphs) {
-      if (paragraph.length > MAX_CHUNK_SIZE) {
-        // If current chunk is non-empty, save it first
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-          currentChunk = '';
-        }
-        // Split long paragraph by sentences
-        const sentences = paragraph.split(/(?<=[.!?])\s+/);
-        for (const sentence of sentences) {
-          if ((currentChunk + ' ' + sentence).trim().length > MAX_CHUNK_SIZE) {
-            if (currentChunk.trim()) {
-              chunks.push(currentChunk.trim());
-              currentChunk = sentence;
-            } else {
-              // Single sentence exceeds limit, push as-is
-              chunks.push(sentence.slice(0, MAX_CHUNK_SIZE));
-              currentChunk = '';
-            }
-          } else {
-            currentChunk = (currentChunk + ' ' + sentence).trim();
-          }
-        }
-      } else if ((currentChunk + '\n\n' + paragraph).trim().length > MAX_CHUNK_SIZE) {
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-        }
-        currentChunk = paragraph;
-      } else {
-        currentChunk = currentChunk ? currentChunk + '\n\n' + paragraph : paragraph;
-      }
-    }
-
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-    }
-
-    return chunks.length > 0 ? chunks : [text];
-  }
+  constructor(private readonly glossaryService: GlossaryService) {}
 
   private async translateChunk(
     chunk: string,
@@ -129,20 +88,36 @@ export class MyMemoryTranslationService implements ITranslationService {
       throw new BadRequestException('Text to translate cannot be empty');
     }
 
-    const chunks = this.splitIntoChunks(text);
+    const chunks = splitIntoChunksWithOverlap(text, MAX_CHUNK_SIZE, OVERLAP_SENTENCES);
     const translatedChunks = await Promise.all(
       chunks.map((chunk) => this.translateChunk(chunk, sourceLang, targetLang)),
     );
 
-    return translatedChunks.join('\n\n');
+    return postProcessTranslation(translatedChunks.join('\n\n'));
   }
 
   async translateBatch(
     texts: string[],
     sourceLang: string,
     targetLang: string,
+    options?: { glossaryPath?: string },
   ): Promise<string[]> {
-    return Promise.all(texts.map((text) => this.translate(text, sourceLang, targetLang)));
+    const terms = options?.glossaryPath
+      ? this.glossaryService.loadGlossary(options.glossaryPath)
+      : {};
+
+    const results: string[] = [];
+    for (const text of texts) {
+      if (!options?.glossaryPath || Object.keys(terms).length === 0) {
+        const translated = await this.translate(text, sourceLang, targetLang);
+        results.push(translated);
+      } else {
+        const { text: substituted, placeholders } = this.glossaryService.substitute(text, terms);
+        const translated = await this.translate(substituted, sourceLang, targetLang);
+        results.push(this.glossaryService.restore(translated, placeholders));
+      }
+    }
+    return results;
   }
 
   async getSupportedLanguages(): Promise<string[]> {

@@ -5,6 +5,7 @@ import { TranslationServiceFactory } from './translation-service.factory';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 import { MyMemoryTranslationService } from '../services/mymemory-translation.service';
 import { GeminiTranslationService } from '../services/gemini-translation.service';
+import { GlossaryService } from '../services/glossary.service';
 
 vi.mock('@google/generative-ai', () => {
   const MockGoogleGenerativeAI = vi.fn().mockImplementation(() => ({
@@ -23,6 +24,7 @@ describe('TranslationServiceFactory', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        GlossaryService,
         TranslationServiceFactory,
         MyMemoryTranslationService,
         GeminiTranslationService,
