@@ -1,0 +1,55 @@
+# Default glossary for PDF Translator
+# Terms listed here are replaced with placeholders before translation
+# and restored after translation to prevent incorrect localization.
+#
+# Format:
+#   terms:
+#     - ExactTerm
+#     - AnotherTerm
+
+terms:
+  # Tech brands & products
+  - Google
+  - Microsoft
+  - Apple
+  - Amazon
+  - Meta
+  - OpenAI
+  - Anthropic
+  - Claude
+  - ChatGPT
+  - GitHub
+  - Docker
+  - Kubernetes
+  - Linux
+  - Windows
+  - macOS
+  - iOS
+  - Android
+  - JavaScript
+  - TypeScript
+  - Python
+  - Node.js
+  - NestJS
+  - React
+  - Vue
+  - Angular
+  - PostgreSQL
+  - MongoDB
+  - Redis
+  - Elasticsearch
+  - AWS
+  - GCP
+  - Azure
+  - PDF
+  - API
+  - REST
+  - GraphQL
+  - JSON
+  - YAML
+  - HTML
+  - CSS
+  - CLI
+  - SDK
+  - IDE
+  - CI/CD

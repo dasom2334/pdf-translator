@@ -2,8 +2,11 @@ import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/c
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ITranslationService } from '../interfaces/translation-service.interface';
 import { TranslationException } from '../../common/exceptions/translation.exception';
+import { GlossaryService } from './glossary.service';
+import { postProcessTranslation, splitIntoChunksWithOverlap } from '../utils/translation.utils';
 
 const MAX_CHUNK_SIZE = 4000;
+const OVERLAP_SENTENCES = 1;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000;
 
@@ -23,6 +26,8 @@ export class GeminiTranslationService implements ITranslationService, OnModuleIn
   private readonly logger = new Logger(GeminiTranslationService.name);
   private model!: GenerativeModel;
 
+  constructor(private readonly glossaryService: GlossaryService) {}
+
   onModuleInit(): void {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -32,53 +37,6 @@ export class GeminiTranslationService implements ITranslationService, OnModuleIn
     }
     const genAI = new GoogleGenerativeAI(apiKey);
     this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-  }
-
-  private splitIntoChunks(text: string): string[] {
-    if (text.length <= MAX_CHUNK_SIZE) {
-      return [text];
-    }
-
-    const chunks: string[] = [];
-    const paragraphs = text.split(/\n\n+/);
-    let currentChunk = '';
-
-    for (const paragraph of paragraphs) {
-      if (paragraph.length > MAX_CHUNK_SIZE) {
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-          currentChunk = '';
-        }
-        // Split long paragraph by sentences
-        const sentences = paragraph.split(/(?<=[.!?])\s+/);
-        for (const sentence of sentences) {
-          if ((currentChunk + ' ' + sentence).trim().length > MAX_CHUNK_SIZE) {
-            if (currentChunk.trim()) {
-              chunks.push(currentChunk.trim());
-              currentChunk = sentence;
-            } else {
-              chunks.push(sentence.slice(0, MAX_CHUNK_SIZE));
-              currentChunk = '';
-            }
-          } else {
-            currentChunk = (currentChunk + ' ' + sentence).trim();
-          }
-        }
-      } else if ((currentChunk + '\n\n' + paragraph).trim().length > MAX_CHUNK_SIZE) {
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-        }
-        currentChunk = paragraph;
-      } else {
-        currentChunk = currentChunk ? currentChunk + '\n\n' + paragraph : paragraph;
-      }
-    }
-
-    if (currentChunk.trim()) {
-      chunks.push(currentChunk.trim());
-    }
-
-    return chunks.length > 0 ? chunks : [text];
   }
 
   private buildPrompt(text: string, sourceLang: string, targetLang: string): string {
@@ -141,7 +99,7 @@ export class GeminiTranslationService implements ITranslationService, OnModuleIn
       throw new BadRequestException('Text to translate cannot be empty');
     }
 
-    const chunks = this.splitIntoChunks(text);
+    const chunks = splitIntoChunksWithOverlap(text, MAX_CHUNK_SIZE, OVERLAP_SENTENCES);
     const translatedChunks: string[] = [];
 
     for (const chunk of chunks) {
@@ -149,18 +107,29 @@ export class GeminiTranslationService implements ITranslationService, OnModuleIn
       translatedChunks.push(translated);
     }
 
-    return translatedChunks.join('\n\n');
+    return postProcessTranslation(translatedChunks.join('\n\n'));
   }
 
   async translateBatch(
     texts: string[],
     sourceLang: string,
     targetLang: string,
+    options?: { glossaryPath?: string },
   ): Promise<string[]> {
+    const terms = options?.glossaryPath
+      ? this.glossaryService.loadGlossary(options.glossaryPath)
+      : {};
+
     const results: string[] = [];
     for (const text of texts) {
-      const translated = await this.translate(text, sourceLang, targetLang);
-      results.push(translated);
+      if (!options?.glossaryPath || Object.keys(terms).length === 0) {
+        const translated = await this.translate(text, sourceLang, targetLang);
+        results.push(translated);
+      } else {
+        const { text: substituted, placeholders } = this.glossaryService.substitute(text, terms);
+        const translated = await this.translate(substituted, sourceLang, targetLang);
+        results.push(this.glossaryService.restore(translated, placeholders));
+      }
     }
     return results;
   }
