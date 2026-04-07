@@ -33,6 +33,8 @@ You ONLY create and modify:
 - Dockerfile: multi-stage build, Node 22-alpine
 - CI: pnpm 9 setup, Node 22
 - Conventional commits: `docs:`, `chore:`, `ci:`, etc.
+- **모든 문서(PR 본문, PR 코멘트, 로그 파일)는 한국어로 작성**
+- **"논의"를 언급할 때는 반드시 주체를 명시** — "사용자와 에이전트 간 논의" 또는 "에이전트(작업자)와 리뷰어 간 논의" 등
 
 ## Reference
 CLAUDE.md의 Environment Variables, API Endpoints, CLI 사용법, Directory Structure 참조.

@@ -116,7 +116,16 @@ export class TranslationModule {}
    ```
    - 질의 사항 있음 → 오케스트레이터에게 질의 내용 보고 후 답변 대기
    - 프롬프트 개선 제안 있음 → 오케스트레이터에게 제안 내용 보고 후 답변 대기 (사용자와 논의 후 해당 에이전트 .md 수정)
-   - REQUEST_CHANGES → 수정 후 1번부터 재시작 (ROUND +1, 최대 3회)
+   - REQUEST_CHANGES →
+     a. 이슈 수정
+     b. PR에 ✅ 수정 완료 코멘트 게시:
+        ```bash
+        gh pr comment {PR_NUMBER} --body "## ✅ 수정 완료
+        - 논의 주체: 에이전트(작업자)와 리뷰어 간 논의
+        - 수정 내용: {수정 사항 요약}
+        - 재검수 요청합니다."
+        ```
+     c. 1번부터 재시작 (ROUND +1, 최대 3회)
    - APPROVE → 7번으로 이동
 
 7. **PR 본문 최종 업데이트 (APPROVE 후):**
