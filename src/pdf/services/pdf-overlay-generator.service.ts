@@ -190,16 +190,18 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     // translated text can be placed over a clean background without needing
     // opaque white rectangles. Falls back to the white-box approach when the
     // content streams are compressed (BT/ET markers not found in raw bytes).
-    const { strippedBytes, changed: streamStripped } =
-      stripBtEtFromPdfBytes(originalBuffer);
+    const { strippedBytes, changed } = stripBtEtFromPdfBytes(originalBuffer);
+    let streamStripped = changed;
 
     const pdfDoc = await loadPdfDocument(
       streamStripped ? strippedBytes : originalBuffer,
       streamStripped ? originalBuffer : null,
-      () =>
+      () => {
         this.logger.warn(
           'G-5: stripped PDF failed to load, falling back to original buffer',
-        ),
+        );
+        streamStripped = false;
+      },
     );
 
     // Register fontkit for custom font embedding
