@@ -21,9 +21,122 @@ const DEFAULT_FONT_PATH = path.resolve(
   '../../../../assets/fonts/NotoSansCJKkr-Regular.otf',
 );
 
+/**
+ * G-5: Remove BT...ET text-rendering segments from raw PDF byte content.
+ *
+ * This works at the raw-byte level by scanning for the literal byte sequences
+ * `BT` and `ET` (preceded/followed by whitespace or stream boundaries) and
+ * replacing everything between them (inclusive) with spaces, preserving the
+ * original stream length so no cross-reference table rewrite is required.
+ *
+ * This approach is effective for PDFs whose content streams are not
+ * compressed (e.g., PDFs produced by most word processors with plain text
+ * streams). For PDFs with fully-compressed content streams the markers will
+ * not be found and the function returns `changed: false`, allowing the caller
+ * to fall back gracefully to the white-box overlay method.
+ *
+ * @param pdfBytes  Raw bytes of the original PDF.
+ * @returns         Modified bytes and a flag indicating whether any BT/ET
+ *                  segment was found and removed.
+ */
+export function stripBtEtFromPdfBytes(pdfBytes: Buffer): {
+  strippedBytes: Buffer;
+  changed: boolean;
+} {
+  const buf = Buffer.from(pdfBytes); // mutable copy
+  let changed = false;
+  let i = 0;
+
+  /**
+   * Returns true if the byte at position `pos` is a PDF whitespace character
+   * (space, tab, CR, LF) or if `pos` is out of buffer bounds.
+   */
+  const isWhitespaceOrBoundary = (pos: number): boolean =>
+    pos < 0 ||
+    pos >= buf.length ||
+    buf[pos] === 0x20 || // space
+    buf[pos] === 0x09 || // tab
+    buf[pos] === 0x0a || // LF
+    buf[pos] === 0x0d;   // CR
+
+  while (i < buf.length - 1) {
+    // Detect `BT` operator: bytes 0x42 0x54 with surrounding whitespace
+    if (
+      buf[i] === 0x42 &&
+      buf[i + 1] === 0x54 &&
+      isWhitespaceOrBoundary(i - 1) &&
+      isWhitespaceOrBoundary(i + 2)
+    ) {
+      // Scan forward for the matching `ET` operator
+      let j = i + 2;
+      let found = false;
+
+      while (j < buf.length - 1) {
+        if (
+          buf[j] === 0x45 &&
+          buf[j + 1] === 0x54 &&
+          isWhitespaceOrBoundary(j - 1) &&
+          isWhitespaceOrBoundary(j + 2)
+        ) {
+          // Replace BT...ET (inclusive) with spaces
+          const endExclusive = j + 2;
+          for (let k = i; k < endExclusive; k++) {
+            buf[k] = 0x20; // space character
+          }
+          changed = true;
+          i = endExclusive;
+          found = true;
+          break;
+        }
+        j++;
+      }
+
+      if (!found) {
+        // No matching ET — skip past this BT
+        i += 2;
+      }
+      continue;
+    }
+
+    i++;
+  }
+
+  return { strippedBytes: buf, changed };
+}
+
+/**
+ * Load a PDFDocument from raw bytes, with a fallback buffer if the primary
+ * load fails. Returns the loaded document and the buffer that was actually
+ * used (useful for callers to know whether the stripped version was loaded).
+ */
+async function loadPdfDocument(
+  primaryBuffer: Buffer,
+  fallbackBuffer: Buffer | null,
+  onFallback: () => void,
+): Promise<PDFDocument> {
+  try {
+    return await PDFDocument.load(primaryBuffer);
+  } catch (primaryErr) {
+    if (fallbackBuffer !== null) {
+      onFallback();
+      try {
+        return await PDFDocument.load(fallbackBuffer);
+      } catch (fallbackErr) {
+        throw new InternalServerErrorException(
+          `Failed to load PDF for overlay: ${(fallbackErr as Error).message}`,
+        );
+      }
+    }
+    throw new InternalServerErrorException(
+      `Failed to load PDF for overlay: ${(primaryErr as Error).message}`,
+    );
+  }
+}
+
 @Injectable()
 export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
   private readonly logger = new Logger(PdfOverlayGeneratorService.name);
+
   /**
    * Fit text into the given width using font size shrinking and ellipsis truncation.
    * Returns the adjusted text and font size to use.
@@ -33,7 +146,7 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
    * @param originalSize The preferred font size
    * @param measureWidth A function(text, fontSize) => number returning text width
    */
-  private fitText(
+  fitText(
     text: string,
     boxWidth: number,
     originalSize: number,
@@ -72,14 +185,22 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     outputPath: string,
     options?: PdfGenerateOptions,
   ): Promise<void> {
-    let pdfDoc: PDFDocument;
-    try {
-      pdfDoc = await PDFDocument.load(originalBuffer);
-    } catch (err) {
-      throw new InternalServerErrorException(
-        `Failed to load PDF for overlay: ${(err as Error).message}`,
-      );
-    }
+    // --- G-5: attempt raw-bytes BT/ET removal ---
+    // Try to remove original text operators from the PDF byte stream so that
+    // translated text can be placed over a clean background without needing
+    // opaque white rectangles. Falls back to the white-box approach when the
+    // content streams are compressed (BT/ET markers not found in raw bytes).
+    const { strippedBytes, changed: streamStripped } =
+      stripBtEtFromPdfBytes(originalBuffer);
+
+    const pdfDoc = await loadPdfDocument(
+      streamStripped ? strippedBytes : originalBuffer,
+      streamStripped ? originalBuffer : null,
+      () =>
+        this.logger.warn(
+          'G-5: stripped PDF failed to load, falling back to original buffer',
+        ),
+    );
 
     // Register fontkit for custom font embedding
     pdfDoc.registerFontkit(fontkit);
@@ -126,15 +247,18 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       // Therefore: pdfY = pageHeight - block.y - block.height
       const pdfY = pageHeight - block.y - block.height;
 
-      // Draw white rectangle to cover original text (POC: works on white-background PDFs only)
-      page.drawRectangle({
-        x: block.x,
-        y: pdfY,
-        width: block.width,
-        height: block.height,
-        color: rgb(1, 1, 1),
-        opacity: 1,
-      });
+      // If stream stripping did not remove original text (e.g. compressed streams),
+      // fall back to the white-box method to cover the original text.
+      if (!streamStripped) {
+        page.drawRectangle({
+          x: block.x,
+          y: pdfY,
+          width: block.width,
+          height: block.height,
+          color: rgb(1, 1, 1),
+          opacity: 1,
+        });
+      }
 
       // Measure function for overflow handling
       const measureWidth = (t: string, size: number): number => {
@@ -167,8 +291,9 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
         });
       } catch (err) {
         // If the font cannot encode the text (e.g. CJK chars with fallback font),
-        // skip rendering this block's text. The white rectangle has already been
-        // drawn, so the original text is still hidden.
+        // skip rendering this block's text. When stream stripping was applied the
+        // original text is already removed; when falling back to white-box, the
+        // rectangle has already been drawn.
         this.logger.warn(
           `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
         );

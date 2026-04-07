@@ -9,6 +9,31 @@ import { getPdfjs } from '../utils/pdfjs-loader';
 // PDF magic bytes: %PDF
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
 
+/**
+ * Threshold (as fraction of page height) used to detect header/footer zones.
+ * Blocks within the top or bottom HEADER_FOOTER_RATIO of the page height are
+ * candidates for header/footer detection.
+ */
+const HEADER_FOOTER_RATIO = 0.08;
+
+/**
+ * Minimum number of pages a text must appear on (at the same relative Y
+ * position) to be classified as a repeating header/footer pattern.
+ */
+const HEADER_FOOTER_MIN_PAGE_COUNT = 2;
+
+/**
+ * Maximum allowed difference (in points) between two blocks' Y coordinates
+ * for them to be considered on the same "line" during paragraph merging.
+ */
+const SAME_LINE_Y_TOLERANCE = 2;
+
+/**
+ * Maximum horizontal gap (in points) between two adjacent blocks on the same
+ * line to be merged as a single paragraph.
+ */
+const MAX_MERGE_GAP = 20;
+
 @Injectable()
 export class PdfExtractorService implements IPdfExtractor {
   private validateBuffer(fileBuffer: Buffer): void {
@@ -57,10 +82,163 @@ export class PdfExtractorService implements IPdfExtractor {
     return Array.from(pages).sort((a, b) => a - b);
   }
 
+  /**
+   * Normalize text: collapse multiple whitespace characters into a single
+   * space and strip leading/trailing whitespace.
+   */
+  private normalizeText(text: string): string {
+    // Replace control characters and multiple spaces/tabs with a single space
+    return text.replace(/[\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  /**
+   * Sort TextBlocks in reading order: top-to-bottom (Y ascending), then
+   * left-to-right (X ascending) within the same line.
+   */
+  private sortByReadingOrder(blocks: TextBlock[]): TextBlock[] {
+    return [...blocks].sort((a, b) => {
+      const yDiff = a.y - b.y;
+      if (Math.abs(yDiff) > SAME_LINE_Y_TOLERANCE) {
+        return yDiff;
+      }
+      return a.x - b.x;
+    });
+  }
+
+  /**
+   * Build a "fingerprint" for header/footer detection: round Y to the nearest
+   * 5-point bucket to tolerate minor positional variance across pages.
+   */
+  private yBucket(y: number): number {
+    return Math.round(y / 5) * 5;
+  }
+
+  /**
+   * Detect and remove blocks that appear to be repeating headers or footers.
+   *
+   * A block is considered a header/footer candidate if:
+   *   1. Its Y coordinate is in the top or bottom HEADER_FOOTER_RATIO zone of
+   *      the page.
+   *   2. The same (normalized-text, yBucket) pair appears on at least
+   *      HEADER_FOOTER_MIN_PAGE_COUNT distinct pages.
+   */
+  private removeHeadersFooters(
+    blocksByPage: TextBlock[][],
+    pageHeights: number[],
+  ): TextBlock[][] {
+    // Count how many pages each (text, yBucket) pair appears on (in H/F zones)
+    const patternPageCount = new Map<string, Set<number>>();
+
+    for (let pi = 0; pi < blocksByPage.length; pi++) {
+      const pageHeight = pageHeights[pi] ?? 792;
+      const headerThreshold = pageHeight * HEADER_FOOTER_RATIO;
+      const footerThreshold = pageHeight * (1 - HEADER_FOOTER_RATIO);
+
+      for (const block of blocksByPage[pi]) {
+        const inHeaderZone = block.y < headerThreshold;
+        const inFooterZone = block.y > footerThreshold;
+        if (!inHeaderZone && !inFooterZone) {
+          continue;
+        }
+        const key = `${this.normalizeText(block.text)}|${this.yBucket(block.y)}`;
+        if (!patternPageCount.has(key)) {
+          patternPageCount.set(key, new Set());
+        }
+        patternPageCount.get(key)!.add(block.page);
+      }
+    }
+
+    // Build a set of keys that qualify as repeating headers/footers
+    const repeatingKeys = new Set<string>();
+    for (const [key, pages] of patternPageCount.entries()) {
+      if (pages.size >= HEADER_FOOTER_MIN_PAGE_COUNT) {
+        repeatingKeys.add(key);
+      }
+    }
+
+    if (repeatingKeys.size === 0) {
+      return blocksByPage;
+    }
+
+    return blocksByPage.map((blocks, pi) => {
+      const pageHeight = pageHeights[pi] ?? 792;
+      const headerThreshold = pageHeight * HEADER_FOOTER_RATIO;
+      const footerThreshold = pageHeight * (1 - HEADER_FOOTER_RATIO);
+
+      return blocks.filter((block) => {
+        const inHeaderZone = block.y < headerThreshold;
+        const inFooterZone = block.y > footerThreshold;
+        if (!inHeaderZone && !inFooterZone) {
+          return true;
+        }
+        const key = `${this.normalizeText(block.text)}|${this.yBucket(block.y)}`;
+        return !repeatingKeys.has(key);
+      });
+    });
+  }
+
+  /**
+   * Merge adjacent TextBlocks on the same line into paragraph blocks.
+   *
+   * Two blocks are merged if:
+   *   - They are on the same page.
+   *   - Their Y coordinates differ by at most SAME_LINE_Y_TOLERANCE.
+   *   - The horizontal gap between the right edge of the left block and the
+   *     left edge of the right block is at most MAX_MERGE_GAP.
+   */
+  private mergeAdjacentBlocks(blocks: TextBlock[]): TextBlock[] {
+    if (blocks.length === 0) {
+      return [];
+    }
+
+    const result: TextBlock[] = [];
+    let current: TextBlock = { ...blocks[0] };
+
+    for (let i = 1; i < blocks.length; i++) {
+      const next = blocks[i];
+
+      const samePage = current.page === next.page;
+      const sameLineY =
+        Math.abs(current.y - next.y) <= SAME_LINE_Y_TOLERANCE;
+      const currentRight = current.x + current.width;
+      const gap = next.x - currentRight;
+      const closeEnough = gap >= 0 && gap <= MAX_MERGE_GAP;
+
+      if (samePage && sameLineY && closeEnough) {
+        // Merge: extend the current block
+        const mergedText =
+          this.normalizeText(current.text) +
+          ' ' +
+          this.normalizeText(next.text);
+        const newRight = Math.max(currentRight, next.x + next.width);
+        const newTop = Math.min(current.y, next.y);
+        const newBottom = Math.max(
+          current.y + current.height,
+          next.y + next.height,
+        );
+
+        current = {
+          ...current,
+          text: mergedText,
+          y: newTop,
+          width: newRight - current.x,
+          height: newBottom - newTop,
+          fontSize: Math.max(current.fontSize, next.fontSize),
+        };
+      } else {
+        result.push(current);
+        current = { ...next };
+      }
+    }
+
+    result.push(current);
+    return result;
+  }
+
   private async extractBlocksFromPage(
     pdfPage: unknown,
     pageNumber: number,
-  ): Promise<TextBlock[]> {
+  ): Promise<{ blocks: TextBlock[]; pageHeight: number }> {
     const page = pdfPage as {
       getViewport: (opts: { scale: number }) => { height: number };
       getTextContent: () => Promise<{
@@ -87,7 +265,8 @@ export class PdfExtractorService implements IPdfExtractor {
         continue;
       }
 
-      const text = item.str.trim();
+      const rawText = item.str;
+      const text = this.normalizeText(rawText);
       if (!text) {
         continue;
       }
@@ -120,7 +299,32 @@ export class PdfExtractorService implements IPdfExtractor {
       blocks.push(block);
     }
 
-    return blocks;
+    return { blocks, pageHeight };
+  }
+
+  /**
+   * Post-process raw TextBlocks from all pages:
+   * 1. Sort each page's blocks in reading order (Y then X).
+   * 2. Remove repeating header/footer patterns across pages.
+   * 3. Merge adjacent blocks on the same line into paragraph blocks.
+   */
+  private postProcessBlocks(
+    blocksByPage: TextBlock[][],
+    pageHeights: number[],
+  ): TextBlock[][] {
+    // Step 1: sort each page in reading order
+    const sorted = blocksByPage.map((blocks) =>
+      this.sortByReadingOrder(blocks),
+    );
+
+    // Step 2: remove headers/footers (only when there are multiple pages)
+    const filtered =
+      sorted.length >= HEADER_FOOTER_MIN_PAGE_COUNT
+        ? this.removeHeadersFooters(sorted, pageHeights)
+        : sorted;
+
+    // Step 3: merge adjacent blocks
+    return filtered.map((blocks) => this.mergeAdjacentBlocks(blocks));
   }
 
   async extractBlocks(fileBuffer: Buffer): Promise<TextBlock[]> {
@@ -142,13 +346,18 @@ export class PdfExtractorService implements IPdfExtractor {
       );
     }
 
-    const allBlocks: TextBlock[] = [];
+    const blocksByPage: TextBlock[][] = [];
+    const pageHeights: number[] = [];
 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       try {
         const page = await pdf.getPage(pageNum);
-        const blocks = await this.extractBlocksFromPage(page, pageNum);
-        allBlocks.push(...blocks);
+        const { blocks, pageHeight } = await this.extractBlocksFromPage(
+          page,
+          pageNum,
+        );
+        blocksByPage.push(blocks);
+        pageHeights.push(pageHeight);
       } catch (err) {
         if (
           err instanceof BadRequestException ||
@@ -162,7 +371,8 @@ export class PdfExtractorService implements IPdfExtractor {
       }
     }
 
-    return allBlocks;
+    const processed = this.postProcessBlocks(blocksByPage, pageHeights);
+    return processed.flat();
   }
 
   async extractBlocksByPages(
@@ -192,13 +402,18 @@ export class PdfExtractorService implements IPdfExtractor {
         ? this.parsePageRange(pageRange, pdf.numPages)
         : Array.from({ length: pdf.numPages }, (_, i) => i + 1);
 
-    const result: TextBlock[][] = [];
+    const blocksByPage: TextBlock[][] = [];
+    const pageHeights: number[] = [];
 
     for (const pageNum of pageNumbers) {
       try {
         const page = await pdf.getPage(pageNum);
-        const blocks = await this.extractBlocksFromPage(page, pageNum);
-        result.push(blocks);
+        const { blocks, pageHeight } = await this.extractBlocksFromPage(
+          page,
+          pageNum,
+        );
+        blocksByPage.push(blocks);
+        pageHeights.push(pageHeight);
       } catch (err) {
         if (
           err instanceof BadRequestException ||
@@ -212,6 +427,6 @@ export class PdfExtractorService implements IPdfExtractor {
       }
     }
 
-    return result;
+    return this.postProcessBlocks(blocksByPage, pageHeights);
   }
 }
