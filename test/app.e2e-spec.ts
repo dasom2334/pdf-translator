@@ -6,6 +6,7 @@ import { CliModule } from '../src/cli/cli.module';
 import {
   PDF_EXTRACTOR,
   PDF_OVERLAY_GENERATOR,
+  PDF_REBUILD_GENERATOR,
   TextBlock,
 } from '../src/pdf/interfaces';
 import { TranslationServiceFactory } from '../src/translation/factories/translation-service.factory';
@@ -52,6 +53,10 @@ describe('CLI E2E — TranslateCommand', () => {
     overlay: vi.fn().mockResolvedValue(undefined),
   };
 
+  const mockRebuildGenerator = {
+    rebuild: vi.fn().mockResolvedValue(undefined),
+  };
+
   const mockTranslationService = {
     translate: vi.fn(),
     translateBatch: vi.fn().mockResolvedValue(['안녕 세계']),
@@ -74,6 +79,8 @@ describe('CLI E2E — TranslateCommand', () => {
       .useValue(mockExtractor)
       .overrideProvider(PDF_OVERLAY_GENERATOR)
       .useValue(mockOverlayGenerator)
+      .overrideProvider(PDF_REBUILD_GENERATOR)
+      .useValue(mockRebuildGenerator)
       .overrideProvider(TranslationServiceFactory)
       .useValue(mockFactory)
       .compile();
@@ -142,21 +149,16 @@ describe('CLI E2E — TranslateCommand', () => {
     );
   });
 
-  it('should exit with code 1 when rebuild mode is requested', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit(1)');
-    });
+  it('should run rebuild mode successfully', async () => {
+    await command.run([], {
+      input: '/tmp/test.pdf',
+      targetLang: 'ko',
+      mode: 'rebuild',
+      output: '/tmp/test_ko.pdf',
+    } as never);
 
-    await expect(
-      command.run([], {
-        input: '/tmp/test.pdf',
-        targetLang: 'ko',
-        mode: 'rebuild',
-      } as never),
-    ).rejects.toThrow('process.exit(1)');
-
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    exitSpy.mockRestore();
+    expect(mockRebuildGenerator.rebuild).toHaveBeenCalled();
+    expect(mockOverlayGenerator.overlay).not.toHaveBeenCalled();
   });
 
   it('should exit with code 1 when input file cannot be read', async () => {

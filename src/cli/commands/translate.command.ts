@@ -5,8 +5,10 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import {
   IPdfExtractor,
   IPdfOverlayGenerator,
+  IPdfRebuildGenerator,
   PDF_EXTRACTOR,
   PDF_OVERLAY_GENERATOR,
+  PDF_REBUILD_GENERATOR,
 } from '../../pdf/interfaces';
 import { TranslationServiceFactory } from '../../translation/factories/translation-service.factory';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
@@ -33,6 +35,8 @@ export class TranslateCommand extends CommandRunner {
     private readonly pdfExtractor: IPdfExtractor,
     @Inject(PDF_OVERLAY_GENERATOR)
     private readonly pdfOverlayGenerator: IPdfOverlayGenerator,
+    @Inject(PDF_REBUILD_GENERATOR)
+    private readonly pdfRebuildGenerator: IPdfRebuildGenerator,
     private readonly translationServiceFactory: TranslationServiceFactory,
   ) {
     super();
@@ -112,6 +116,14 @@ export class TranslateCommand extends CommandRunner {
     return val;
   }
 
+  @Option({
+    flags: '--pages <range>',
+    description: 'Page range to translate (e.g. 1-5,10)',
+  })
+  parsePages(val: string): string {
+    return val;
+  }
+
   async run(
     _passedParams: string[],
     options?: TranslateCommandOptions,
@@ -184,16 +196,16 @@ export class TranslateCommand extends CommandRunner {
       }
 
       // Step 6: Generate output PDF
-      if (mode === OutputMode.REBUILD) {
-        console.error('Error: rebuild mode is not yet supported');
-        process.exit(1);
-      }
-
-      // overlay mode
       console.log('Generating translated PDF...');
-      await this.pdfOverlayGenerator.overlay(buffer, flatBlocks, outputPath, {
-        fontPath,
-      });
+      if (mode === OutputMode.REBUILD) {
+        await this.pdfRebuildGenerator.rebuild(flatBlocks, outputPath, {
+          fontPath,
+        });
+      } else {
+        await this.pdfOverlayGenerator.overlay(buffer, flatBlocks, outputPath, {
+          fontPath,
+        });
+      }
 
       console.log(`Translation complete. Output saved to: ${outputPath}`);
     } catch (err: unknown) {
