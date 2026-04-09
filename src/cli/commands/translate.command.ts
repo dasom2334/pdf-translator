@@ -15,6 +15,7 @@ import { TranslationProvider } from '../../common/enums/translation-provider.enu
 import { OutputMode } from '../../common/enums/output-mode.enum';
 import { loadCliConfig } from '../config/cli-config.loader';
 import { printProgress } from '../utils/progress';
+import { parsePageRange } from '../utils/page-range.parser';
 
 interface TranslateCommandOptions {
   input: string;
@@ -127,6 +128,13 @@ export class TranslateCommand extends CommandRunner {
     description: 'Page range to translate (e.g. 1-5,10)',
   })
   parsePages(val: string): string {
+    try {
+      parsePageRange(val);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`Error: Invalid --pages value: ${msg}`);
+      process.exit(1);
+    }
     return val;
   }
 
