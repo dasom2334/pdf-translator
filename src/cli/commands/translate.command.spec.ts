@@ -4,6 +4,7 @@ import { TranslateCommand } from './translate.command';
 import {
   PDF_EXTRACTOR,
   PDF_OVERLAY_GENERATOR,
+  PDF_REBUILD_GENERATOR,
   TextBlock,
 } from '../../pdf/interfaces';
 import { TranslationServiceFactory } from '../../translation/factories/translation-service.factory';
@@ -35,6 +36,10 @@ const mockPdfOverlayGenerator = {
   overlay: vi.fn().mockResolvedValue(undefined),
 };
 
+const mockPdfRebuildGenerator = {
+  rebuild: vi.fn().mockResolvedValue(undefined),
+};
+
 const mockTranslationService = {
   translate: vi.fn(),
   translateBatch: vi.fn().mockResolvedValue(['Hola']),
@@ -57,6 +62,7 @@ describe('TranslateCommand', () => {
     );
     mockPdfExtractor.extractBlocksByPages.mockResolvedValue([[{ ...mockBlock }]]);
     mockPdfOverlayGenerator.overlay.mockResolvedValue(undefined);
+    mockPdfRebuildGenerator.rebuild.mockResolvedValue(undefined);
     mockTranslationService.translateBatch.mockResolvedValue(['Hola']);
     mockTranslationServiceFactory.getService.mockReturnValue(mockTranslationService);
 
@@ -65,6 +71,7 @@ describe('TranslateCommand', () => {
         TranslateCommand,
         { provide: PDF_EXTRACTOR, useValue: mockPdfExtractor },
         { provide: PDF_OVERLAY_GENERATOR, useValue: mockPdfOverlayGenerator },
+        { provide: PDF_REBUILD_GENERATOR, useValue: mockPdfRebuildGenerator },
         {
           provide: TranslationServiceFactory,
           useValue: mockTranslationServiceFactory,
@@ -108,24 +115,16 @@ describe('TranslateCommand', () => {
   });
 
   // ── rebuild 모드 ──────────────────────────────────────────────────────────
-  it('rebuild mode: process.exit(1) 호출 확인', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
+  it('rebuild mode: pdfRebuildGenerator.rebuild 호출 확인', async () => {
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.REBUILD,
+    } as never);
 
-    try {
-      await expect(
-        command.run([], {
-          input: '/some/file.pdf',
-          targetLang: 'ko',
-          provider: TranslationProvider.MYMEMORY,
-          mode: OutputMode.REBUILD,
-        } as never),
-      ).rejects.toThrow('process.exit called');
-      expect(exitSpy).toHaveBeenCalledWith(1);
-    } finally {
-      exitSpy.mockRestore();
-    }
+    expect(mockPdfRebuildGenerator.rebuild).toHaveBeenCalled();
+    expect(mockPdfOverlayGenerator.overlay).not.toHaveBeenCalled();
   });
 
   // ── 파일 읽기 실패 ────────────────────────────────────────────────────────
