@@ -15,6 +15,11 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.4 fake')),
 }));
 
+// cli-config.loader 모킹 — 설정 파일 없는 환경으로 고정
+vi.mock('../src/cli/config/cli-config.loader', () => ({
+  loadCliConfig: vi.fn().mockResolvedValue({}),
+}));
+
 const sampleBlock: TextBlock = {
   text: 'Hello World',
   page: 1,
@@ -107,6 +112,7 @@ describe('CLI E2E — TranslateCommand', () => {
       ['Hello World'],
       'en',
       'ko',
+      undefined,
     );
     expect(mockOverlayGenerator.overlay).toHaveBeenCalledWith(
       expect.any(Buffer),
