@@ -32,6 +32,9 @@ importers:
       class-validator:
         specifier: ^0.14.0
         version: 0.14.4
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.1.1
       nest-commander:
         specifier: ^3.12.0
         version: 3.20.1(@nestjs/common@11.1.17(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.17)(@types/inquirer@8.2.12)(@types/node@22.19.15)(typescript@5.9.3)
@@ -57,6 +60,9 @@ importers:
       '@nestjs/testing':
         specifier: ^11.0.0
         version: 11.1.17(@nestjs/common@11.1.17(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.17)(@nestjs/platform-express@11.1.17)
+      '@types/js-yaml':
+        specifier: ^4.0.0
+        version: 4.0.9
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1023,6 +1029,9 @@ packages:
 
   '@types/inquirer@8.2.12':
     resolution: {integrity: sha512-YxURZF2ZsSjU5TAe06tW0M3sL4UI9AMPA6dd8I72uOtppzNafcY38xkYgCZ/vsVOAyNdzHmvtTpLWilOrbP0dQ==}
+
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -3691,6 +3700,8 @@ snapshots:
     dependencies:
       '@types/through': 0.0.33
       rxjs: 7.8.2
+
+  '@types/js-yaml@4.0.9': {}
 
   '@types/json-schema@7.0.15': {}
 
