@@ -1,3 +1,4 @@
+import { createCanvas } from 'canvas';
 import { InternalServerErrorException } from '@nestjs/common';
 
 /** Render scale for page rasterization (2.0 = 144 dpi). */
@@ -13,11 +14,41 @@ export interface RenderedPage {
 }
 
 /**
- * Renders every page of a PDF to a PNG buffer using pdfjs-dist + @napi-rs/canvas.
+ * Canvas factory for pdfjs-dist in Node.js.
  *
- * pdfjs-dist v4's built-in NodeCanvasFactory uses @napi-rs/canvas internally.
- * We use the same package for the main render canvas so that drawImage calls
- * between the main context and pdfjs sub-canvases are type-compatible.
+ * pdfjs's getDocument() accepts a `CanvasFactory` class (constructor).
+ * All canvas objects — main render canvas and pdfjs internal sub-canvases
+ * (transparency groups, patterns) — are created through this factory,
+ * ensuring type consistency when drawImage is called across them.
+ */
+class NodeCanvasFactory {
+  create(width: number, height: number) {
+    const canvas = createCanvas(width, height);
+    return { canvas, context: canvas.getContext('2d') };
+  }
+
+  reset(
+    cac: { canvas: ReturnType<typeof createCanvas>; context: unknown },
+    width: number,
+    height: number,
+  ) {
+    cac.canvas.width = width;
+    cac.canvas.height = height;
+    cac.context = cac.canvas.getContext('2d');
+  }
+
+  destroy(cac: { canvas: ReturnType<typeof createCanvas> | null; context: unknown }) {
+    if (cac.canvas) {
+      cac.canvas.width = 0;
+      cac.canvas.height = 0;
+    }
+    cac.canvas = null;
+    cac.context = null;
+  }
+}
+
+/**
+ * Renders every page of a PDF to a PNG buffer using pdfjs-dist + node-canvas.
  *
  * Each PNG is rendered at RENDER_SCALE (144 dpi) for acceptable quality while
  * keeping the returned RenderedPage.width/height at the original PDF-point
@@ -26,19 +57,20 @@ export interface RenderedPage {
 export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs') as {
-    getDocument: (params: { data: Uint8Array }) => { promise: Promise<PdfjsDocument> };
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createCanvas } = require('@napi-rs/canvas') as {
-    createCanvas: (width: number, height: number) => NapiCanvas;
+    getDocument: (params: { data: Uint8Array; CanvasFactory: typeof NodeCanvasFactory }) => {
+      promise: Promise<PdfjsDocument>;
+    };
   };
 
   let pdfDoc: PdfjsDocument;
   try {
-    // Do not pass a custom canvasFactory — pdfjs's built-in NodeCanvasFactory
-    // also uses @napi-rs/canvas, keeping all canvas objects type-compatible.
-    pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+    // Pass CanvasFactory as a class (constructor), not an instance.
+    // pdfjs uses it to create all internal canvases (transparency groups, etc.)
+    // so they are the same type as our main render canvas — no drawImage conflicts.
+    pdfDoc = await pdfjs.getDocument({
+      data: new Uint8Array(pdfBuffer),
+      CanvasFactory: NodeCanvasFactory,
+    }).promise;
   } catch (err) {
     throw new InternalServerErrorException(
       `PDF 페이지 렌더링 실패: ${(err as Error).message}`,
@@ -64,7 +96,7 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     }).promise;
 
     pages.push({
-      pngBuffer: canvas.toBuffer('image/png') as Buffer,
+      pngBuffer: canvas.toBuffer('image/png'),
       width: viewport.width,
       height: viewport.height,
     });
@@ -77,13 +109,8 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
 }
 
 // ---------------------------------------------------------------------------
-// Minimal type stubs
+// Minimal pdfjs type stubs
 // ---------------------------------------------------------------------------
-
-interface NapiCanvas {
-  getContext(type: '2d'): CanvasRenderingContext2D;
-  toBuffer(format: 'image/png'): Buffer | Uint8Array;
-}
 
 interface PdfjsDocument {
   numPages: number;
