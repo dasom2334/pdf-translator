@@ -8,6 +8,7 @@ import {
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { IPdfOverlayGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
+import { renderPdfPages } from '../utils/pdf-page-renderer';
 
 const MIN_FONT_SIZE = 4;
 const ELLIPSIS = '...';
@@ -24,7 +25,7 @@ const DEFAULT_FONT_PATH = path.resolve(
 );
 
 /**
- * G-5: Remove BT...ET text-rendering segments from raw PDF byte content.
+ * Remove BT...ET text-rendering segments from raw PDF byte content.
  *
  * This works at the raw-byte level by scanning for the literal byte sequences
  * `BT` and `ET` (preceded/followed by whitespace or stream boundaries) and
@@ -34,8 +35,7 @@ const DEFAULT_FONT_PATH = path.resolve(
  * This approach is effective for PDFs whose content streams are not
  * compressed (e.g., PDFs produced by most word processors with plain text
  * streams). For PDFs with fully-compressed content streams the markers will
- * not be found and the function returns `changed: false`, allowing the caller
- * to fall back gracefully to the white-box overlay method.
+ * not be found and the function returns `changed: false`.
  *
  * @param pdfBytes  Raw bytes of the original PDF.
  * @returns         Modified bytes and a flag indicating whether any BT/ET
@@ -49,27 +49,21 @@ export function stripBtEtFromPdfBytes(pdfBytes: Buffer): {
   let changed = false;
   let i = 0;
 
-  /**
-   * Returns true if the byte at position `pos` is a PDF whitespace character
-   * (space, tab, CR, LF) or if `pos` is out of buffer bounds.
-   */
   const isWhitespaceOrBoundary = (pos: number): boolean =>
     pos < 0 ||
     pos >= buf.length ||
-    buf[pos] === 0x20 || // space
-    buf[pos] === 0x09 || // tab
-    buf[pos] === 0x0a || // LF
-    buf[pos] === 0x0d;   // CR
+    buf[pos] === 0x20 ||
+    buf[pos] === 0x09 ||
+    buf[pos] === 0x0a ||
+    buf[pos] === 0x0d;
 
   while (i < buf.length - 1) {
-    // Detect `BT` operator: bytes 0x42 0x54 with surrounding whitespace
     if (
       buf[i] === 0x42 &&
       buf[i + 1] === 0x54 &&
       isWhitespaceOrBoundary(i - 1) &&
       isWhitespaceOrBoundary(i + 2)
     ) {
-      // Scan forward for the matching `ET` operator
       let j = i + 2;
       let found = false;
 
@@ -80,10 +74,9 @@ export function stripBtEtFromPdfBytes(pdfBytes: Buffer): {
           isWhitespaceOrBoundary(j - 1) &&
           isWhitespaceOrBoundary(j + 2)
         ) {
-          // Replace BT...ET (inclusive) with spaces
           const endExclusive = j + 2;
           for (let k = i; k < endExclusive; k++) {
-            buf[k] = 0x20; // space character
+            buf[k] = 0x20;
           }
           changed = true;
           i = endExclusive;
@@ -94,7 +87,6 @@ export function stripBtEtFromPdfBytes(pdfBytes: Buffer): {
       }
 
       if (!found) {
-        // No matching ET — skip past this BT
         i += 2;
       }
       continue;
@@ -106,47 +98,12 @@ export function stripBtEtFromPdfBytes(pdfBytes: Buffer): {
   return { strippedBytes: buf, changed };
 }
 
-/**
- * Load a PDFDocument from raw bytes, with a fallback buffer if the primary
- * load fails. Returns the loaded document and the buffer that was actually
- * used (useful for callers to know whether the stripped version was loaded).
- */
-async function loadPdfDocument(
-  primaryBuffer: Buffer,
-  fallbackBuffer: Buffer | null,
-  onFallback: () => void,
-): Promise<PDFDocument> {
-  try {
-    return await PDFDocument.load(primaryBuffer);
-  } catch (primaryErr) {
-    if (fallbackBuffer !== null) {
-      onFallback();
-      try {
-        return await PDFDocument.load(fallbackBuffer);
-      } catch (fallbackErr) {
-        throw new InternalServerErrorException(
-          `Failed to load PDF for overlay: ${(fallbackErr as Error).message}`,
-        );
-      }
-    }
-    throw new InternalServerErrorException(
-      `Failed to load PDF for overlay: ${(primaryErr as Error).message}`,
-    );
-  }
-}
-
 @Injectable()
 export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
   private readonly logger = new Logger(PdfOverlayGeneratorService.name);
 
   /**
    * Fit text into the given width using font size shrinking and ellipsis truncation.
-   * Returns the adjusted text and font size to use.
-   *
-   * @param text         The text to fit
-   * @param boxWidth     Available width in points
-   * @param originalSize The preferred font size
-   * @param measureWidth A function(text, fontSize) => number returning text width
    */
   fitText(
     text: string,
@@ -154,13 +111,11 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     originalSize: number,
     measureWidth: (t: string, size: number) => number,
   ): { text: string; fontSize: number } {
-    // Phase 1: shrink font size until text fits
     let fontSize = originalSize;
     while (fontSize > MIN_FONT_SIZE && measureWidth(text, fontSize) > boxWidth) {
       fontSize -= 0.5;
     }
 
-    // Phase 2: if still overflows at minimum size, truncate with ellipsis
     if (measureWidth(text, fontSize) > boxWidth) {
       if (boxWidth <= 0) {
         return { text: '', fontSize };
@@ -187,74 +142,64 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     outputPath: string,
     options?: PdfGenerateOptions,
   ): Promise<void> {
-    // --- G-5: attempt raw-bytes BT/ET removal ---
-    // Try to remove original text operators from the PDF byte stream so that
-    // translated text can be placed over a clean background without needing
-    // opaque white rectangles. Falls back to the white-box approach when the
-    // content streams are compressed (BT/ET markers not found in raw bytes).
-    const { strippedBytes, changed } = stripBtEtFromPdfBytes(originalBuffer);
-    let streamStripped = changed;
+    // Render every page of the original PDF to a PNG image.
+    // This preserves backgrounds, images, and vector graphics as a raster layer,
+    // and makes the overlay independent of the PDF's content stream encoding.
+    const pageImages = await renderPdfPages(originalBuffer);
 
-    const pdfDoc = await loadPdfDocument(
-      streamStripped ? strippedBytes : originalBuffer,
-      streamStripped ? originalBuffer : null,
-      () => {
-        this.logger.warn(
-          'G-5: stripped PDF failed to load, falling back to original buffer',
-        );
-        streamStripped = false;
-      },
-    );
-
-    // Register fontkit for custom font embedding
+    // Build a new PDF document with page images as backgrounds.
+    const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
-    // Load font bytes
+    // Load font
     const fontPath = options?.fontPath ?? DEFAULT_FONT_PATH;
     let customFont: Awaited<ReturnType<PDFDocument['embedFont']>> | null = null;
-
     try {
       if (fs.existsSync(fontPath)) {
         const fontBytes = fs.readFileSync(fontPath);
         customFont = await pdfDoc.embedFont(fontBytes);
       }
     } catch {
-      // Fall back to standard font if custom font fails to load
       customFont = null;
     }
-
-    // Fall back to standard Helvetica if custom font unavailable
     const fallbackFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const font = customFont ?? fallbackFont;
 
-    const pages = pdfDoc.getPages();
-
+    // Group translated blocks by page number
+    const blocksByPage = new Map<number, TextBlock[]>();
     for (const block of blocks) {
-      // Only process blocks with translated text
-      const translatedText = block.translatedText;
-      if (!translatedText) {
-        continue;
+      if (!block.translatedText) continue;
+      if (!blocksByPage.has(block.page)) blocksByPage.set(block.page, []);
+      blocksByPage.get(block.page)!.push(block);
+    }
+
+    // For each rendered page, create a pdf-lib page with the image as background
+    // then draw white boxes + translated text on top.
+    for (let i = 0; i < pageImages.length; i++) {
+      const { pngBuffer, width, height } = pageImages[i];
+      const pageNum = i + 1;
+
+      let pngImage;
+      try {
+        pngImage = await pdfDoc.embedPng(pngBuffer);
+      } catch (err) {
+        throw new InternalServerErrorException(
+          `페이지 ${pageNum} 이미지 임베딩 실패: ${(err as Error).message}`,
+        );
       }
 
-      // PDF pages are 1-indexed; array is 0-indexed
-      const pageIndex = block.page - 1;
-      if (pageIndex < 0 || pageIndex >= pages.length) {
-        continue;
-      }
+      const page = pdfDoc.addPage([width, height]);
 
-      const page = pages[pageIndex];
-      const { height: pageHeight } = page.getSize();
+      // Draw the rendered page image as full-page background
+      page.drawImage(pngImage, { x: 0, y: 0, width, height });
 
-      // TextBlock coordinates: x, y are top-left origin (from pdfjs extraction).
-      // pdf-lib uses bottom-left origin.
-      // pdfjs extraction: y = pageHeight - pdfY - blockHeight
-      // Therefore: pdfY = pageHeight - block.y - block.height
-      const pdfY = pageHeight - block.y - block.height;
+      // Overlay translated text blocks
+      for (const block of blocksByPage.get(pageNum) ?? []) {
+        // pdf-lib uses bottom-left origin; pdfjs extraction uses top-left origin
+        const pdfY = height - block.y - block.height;
 
-      // If stream stripping did not remove original text (e.g. compressed streams),
-      // fall back to the white-box method to cover the original text.
-      // pdfY is the baseline y; descenders extend below it, so we pad downward.
-      if (!streamStripped) {
+        // Cover original text in the rasterized image with a white box.
+        // Descenders (g, p, y) extend below the baseline, so pad downward.
         const descenderPad = block.fontSize * DESCENDER_PAD_RATIO;
         page.drawRectangle({
           x: block.x,
@@ -264,55 +209,49 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
           color: rgb(1, 1, 1),
           opacity: 1,
         });
-      }
 
-      // Measure function for overflow handling
-      const measureWidth = (t: string, size: number): number => {
-        try {
-          return font.widthOfTextAtSize(t, size);
-        } catch {
-          return t.length * size * 0.6; // rough approximation
-        }
-      };
+        const measureWidth = (t: string, size: number): number => {
+          try {
+            return font.widthOfTextAtSize(t, size);
+          } catch {
+            return t.length * size * 0.6;
+          }
+        };
 
-      const { text: fittedText, fontSize: fittedSize } = this.fitText(
-        translatedText,
-        block.width,
-        block.fontSize,
-        measureWidth,
-      );
-
-      // Draw translated text at same position
-      // Align baseline: center vertically within the block
-      const textHeight = fittedSize;
-      const yOffset = (block.height - textHeight) / 2;
-
-      try {
-        page.drawText(fittedText, {
-          x: block.x,
-          y: pdfY + yOffset,
-          size: fittedSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-      } catch (err) {
-        // If the font cannot encode the text (e.g. CJK chars with fallback font),
-        // skip rendering this block's text. When stream stripping was applied the
-        // original text is already removed; when falling back to white-box, the
-        // rectangle has already been drawn.
-        this.logger.warn(
-          `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
+        const { text: fittedText, fontSize: fittedSize } = this.fitText(
+          block.translatedText!,
+          block.width,
+          block.fontSize,
+          measureWidth,
         );
+
+        if (!fittedText) continue;
+
+        const yOffset = (block.height - fittedSize) / 2;
+
+        try {
+          page.drawText(fittedText, {
+            x: block.x,
+            y: pdfY + yOffset,
+            size: fittedSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        } catch (err) {
+          this.logger.warn(
+            `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
 
-    // Save result
+    // Serialize and write
     let pdfBytes: Uint8Array;
     try {
       pdfBytes = await pdfDoc.save();
     } catch (err) {
       throw new InternalServerErrorException(
-        `Failed to serialize overlay PDF: ${(err as Error).message}`,
+        `오버레이 PDF 직렬화 실패: ${(err as Error).message}`,
       );
     }
 
@@ -324,7 +263,7 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       fs.writeFileSync(outputPath, pdfBytes);
     } catch (err) {
       throw new InternalServerErrorException(
-        `Failed to write overlay PDF to ${outputPath}: ${(err as Error).message}`,
+        `오버레이 PDF 저장 실패 (${outputPath}): ${(err as Error).message}`,
       );
     }
   }
