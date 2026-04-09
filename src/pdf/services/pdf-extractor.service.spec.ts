@@ -100,8 +100,7 @@ describe('PdfExtractorService', () => {
 
       const blocks = await service.extractBlocks(validPdfHeader);
 
-      // With E-2 merging: the two items are on different Y coords (>2pt difference),
-      // so they should remain separate blocks.
+      // 문단 병합: Y 좌표 차이가 2pt 초과이면 별개 블록으로 유지된다.
       expect(blocks.length).toBeGreaterThanOrEqual(1);
       const texts = blocks.map((b) => b.text);
       expect(texts.some((t) => t.includes('Hello World'))).toBe(true);
@@ -240,9 +239,9 @@ describe('PdfExtractorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // E-2: Reading-order sort
+  // 좌표 기반 읽기 순서 정렬 (Y → X)
   // -------------------------------------------------------------------------
-  describe('E-2: reading order sort', () => {
+  describe('reading order sort (Y→X 좌표 기준)', () => {
     it('should sort blocks top-to-bottom then left-to-right', async () => {
       // Three items: bottom-left, top-right, top-left
       // Expected order after sort: top-left, top-right, bottom-left
@@ -291,9 +290,9 @@ describe('PdfExtractorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // E-2: Header/footer removal
+  // 헤더/푸터 자동 감지 및 제거
   // -------------------------------------------------------------------------
-  describe('E-2: header/footer removal', () => {
+  describe('header/footer 자동 감지 및 제거', () => {
     it('should remove repeating header text present on multiple pages', async () => {
       const pageHeight = 792;
       const headerY = 770; // near top → converted y ≈ 10 (within 8% = 63pt threshold)
@@ -389,9 +388,9 @@ describe('PdfExtractorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // E-2: Whitespace normalization
+  // 공백·특수문자 정제
   // -------------------------------------------------------------------------
-  describe('E-2: whitespace normalization', () => {
+  describe('공백 및 특수문자 정제', () => {
     it('should collapse multiple spaces into a single space', async () => {
       const mockItems = [
         {
@@ -442,9 +441,9 @@ describe('PdfExtractorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // E-2: Paragraph merging
+  // 인접 TextBlock 문단 병합
   // -------------------------------------------------------------------------
-  describe('E-2: paragraph merging', () => {
+  describe('인접 블록 문단 병합', () => {
     it('should merge adjacent blocks on the same line', async () => {
       const pageHeight = 792;
       // Two items at the same Y and close X positions — should merge

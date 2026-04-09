@@ -129,7 +129,7 @@ describe('PdfOverlayGeneratorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // G-2: Overflow — long text should not throw and output should be valid
+  // Overflow — long text should not throw and output should be valid
   // -------------------------------------------------------------------------
 
   it('should handle overflow text without throwing', async () => {
@@ -145,7 +145,7 @@ describe('PdfOverlayGeneratorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // G-2: Overflow — fitText internal logic
+  // Overflow — fitText internal logic
   // -------------------------------------------------------------------------
 
   describe('fitText (overflow logic via overlay)', () => {
@@ -232,10 +232,10 @@ describe('PdfOverlayGeneratorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // G-5: stripBtEtFromPdfBytes unit tests
+  // PDF 콘텐츠 스트림에서 텍스트 명령어(BT...ET) 제거
   // -------------------------------------------------------------------------
 
-  describe('G-5: stripBtEtFromPdfBytes', () => {
+  describe('stripBtEtFromPdfBytes', () => {
     it('should return changed=false for a buffer with no BT/ET operators', () => {
       const buf = Buffer.from('%PDF-1.4\nsome content without BT-ET markers');
       const { changed } = stripBtEtFromPdfBytes(buf);
