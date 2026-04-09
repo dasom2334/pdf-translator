@@ -122,7 +122,7 @@ describe('MyMemoryTranslationService', () => {
       expect(capturedUrl).toContain('langpair=en%7Ces');
     });
 
-    it('should strip HTML tags from translation result (T-3 post-processing)', async () => {
+    it('should strip HTML tags from translation result', async () => {
       mswServer.use(
         http.get('https://api.mymemory.translated.net/get', () =>
           HttpResponse.json({
@@ -135,7 +135,7 @@ describe('MyMemoryTranslationService', () => {
       expect(result).toBe('안녕하세요');
     });
 
-    it('should collapse extra whitespace in translation result (T-3 post-processing)', async () => {
+    it('should collapse extra whitespace in translation result', async () => {
       mswServer.use(
         http.get('https://api.mymemory.translated.net/get', () =>
           HttpResponse.json({
@@ -172,7 +172,7 @@ describe('MyMemoryTranslationService', () => {
       expect(results).toEqual([]);
     });
 
-    it('should apply glossary substitution when glossaryPath is provided (T-4)', async () => {
+    it('should apply glossary substitution when glossaryPath is provided', async () => {
       // Mock the glossary service to return a known term map
       const glossaryService = new GlossaryService();
       vi.spyOn(glossaryService, 'loadGlossary').mockReturnValue({ Google: 'Google' });

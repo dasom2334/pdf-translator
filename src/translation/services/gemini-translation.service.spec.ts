@@ -142,7 +142,7 @@ describe('GeminiTranslationService', () => {
       expect(callArg).toContain('es');
     });
 
-    it('should strip HTML tags from translation result (T-3 post-processing)', async () => {
+    it('should strip HTML tags from translation result', async () => {
       mockGenerateContent.mockResolvedValueOnce({
         response: { text: () => '<b>안녕하세요</b>' },
       });
@@ -150,7 +150,7 @@ describe('GeminiTranslationService', () => {
       expect(result).toBe('안녕하세요');
     });
 
-    it('should collapse extra whitespace in translation result (T-3 post-processing)', async () => {
+    it('should collapse extra whitespace in translation result', async () => {
       mockGenerateContent.mockResolvedValueOnce({
         response: { text: () => '안녕  하세요' },
       });
@@ -198,7 +198,7 @@ describe('GeminiTranslationService', () => {
       expect(results).toEqual([]);
     });
 
-    it('should apply glossary substitution when glossaryPath is provided (T-4)', async () => {
+    it('should apply glossary substitution when glossaryPath is provided', async () => {
       const glossaryService = new GlossaryService();
       vi.spyOn(glossaryService, 'loadGlossary').mockReturnValue({ Google: 'Google' });
 
