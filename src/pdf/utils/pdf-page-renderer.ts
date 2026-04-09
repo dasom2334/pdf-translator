@@ -1,4 +1,3 @@
-import { createCanvas } from 'canvas';
 import { InternalServerErrorException } from '@nestjs/common';
 
 /** Render scale for page rasterization (2.0 = 144 dpi). */
@@ -14,7 +13,11 @@ export interface RenderedPage {
 }
 
 /**
- * Renders every page of a PDF to a PNG buffer using pdfjs-dist + node-canvas.
+ * Renders every page of a PDF to a PNG buffer using pdfjs-dist + @napi-rs/canvas.
+ *
+ * pdfjs-dist v4's built-in NodeCanvasFactory uses @napi-rs/canvas internally.
+ * We use the same package for the main render canvas so that drawImage calls
+ * between the main context and pdfjs sub-canvases are type-compatible.
  *
  * Each PNG is rendered at RENDER_SCALE (144 dpi) for acceptable quality while
  * keeping the returned RenderedPage.width/height at the original PDF-point
@@ -26,8 +29,15 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     getDocument: (params: { data: Uint8Array }) => { promise: Promise<PdfjsDocument> };
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createCanvas } = require('@napi-rs/canvas') as {
+    createCanvas: (width: number, height: number) => NapiCanvas;
+  };
+
   let pdfDoc: PdfjsDocument;
   try {
+    // Do not pass a custom canvasFactory — pdfjs's built-in NodeCanvasFactory
+    // also uses @napi-rs/canvas, keeping all canvas objects type-compatible.
     pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
   } catch (err) {
     throw new InternalServerErrorException(
@@ -54,7 +64,7 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     }).promise;
 
     pages.push({
-      pngBuffer: canvas.toBuffer('image/png'),
+      pngBuffer: canvas.toBuffer('image/png') as Buffer,
       width: viewport.width,
       height: viewport.height,
     });
@@ -67,8 +77,13 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
 }
 
 // ---------------------------------------------------------------------------
-// Minimal pdfjs type stubs (avoid importing the full ESM type declarations)
+// Minimal type stubs
 // ---------------------------------------------------------------------------
+
+interface NapiCanvas {
+  getContext(type: '2d'): CanvasRenderingContext2D;
+  toBuffer(format: 'image/png'): Buffer | Uint8Array;
+}
 
 interface PdfjsDocument {
   numPages: number;
@@ -78,7 +93,10 @@ interface PdfjsDocument {
 
 interface PdfjsPage {
   getViewport(params: { scale: number }): PdfjsViewport;
-  render(params: { canvasContext: CanvasRenderingContext2D; viewport: PdfjsViewport }): { promise: Promise<void> };
+  render(params: {
+    canvasContext: CanvasRenderingContext2D;
+    viewport: PdfjsViewport;
+  }): { promise: Promise<void> };
   cleanup(): void;
 }
 
