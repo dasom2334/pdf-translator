@@ -6,11 +6,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+import * as fontkit from '@pdf-lib/fontkit';
 import { IPdfOverlayGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 
 const MIN_FONT_SIZE = 4;
 const ELLIPSIS = '...';
+/** Fraction of fontSize added below the baseline to cover descenders (g, p, y 등). */
+const DESCENDER_PAD_RATIO = 0.2;
 
 /**
  * Default bundled font path (Noto Sans CJK KR).
@@ -251,12 +253,14 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
 
       // If stream stripping did not remove original text (e.g. compressed streams),
       // fall back to the white-box method to cover the original text.
+      // pdfY is the baseline y; descenders extend below it, so we pad downward.
       if (!streamStripped) {
+        const descenderPad = block.fontSize * DESCENDER_PAD_RATIO;
         page.drawRectangle({
           x: block.x,
-          y: pdfY,
+          y: pdfY - descenderPad,
           width: block.width,
-          height: block.height,
+          height: block.height + descenderPad,
           color: rgb(1, 1, 1),
           opacity: 1,
         });

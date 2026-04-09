@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+import * as fontkit from '@pdf-lib/fontkit';
 import { IPdfRebuildGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 
 const MIN_FONT_SIZE = 4;
