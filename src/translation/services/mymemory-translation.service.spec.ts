@@ -177,6 +177,21 @@ describe('MyMemoryTranslationService', () => {
       const glossaryService = new GlossaryService();
       vi.spyOn(glossaryService, 'loadGlossary').mockReturnValue({ Google: 'Google' });
 
+      // GlossaryService.substitute를 spy하여 실제 placeholder 캡처
+      let capturedPlaceholder: string;
+      vi.spyOn(glossaryService, 'substitute').mockImplementation((text, terms) => {
+        capturedPlaceholder = `\x00GTERM_test-uuid\x00`;
+        const placeholders = new Map([[capturedPlaceholder, (terms as Record<string, string>)['Google']]]);
+        return { text: text.replace('Google', capturedPlaceholder), placeholders };
+      });
+      vi.spyOn(glossaryService, 'restore').mockImplementation((text, placeholders) => {
+        let result = text;
+        for (const [ph, original] of placeholders.entries()) {
+          result = result.replace(ph, original);
+        }
+        return result;
+      });
+
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           { provide: GlossaryService, useValue: glossaryService },
@@ -194,7 +209,7 @@ describe('MyMemoryTranslationService', () => {
           expect(q).not.toContain('Google');
           return HttpResponse.json({
             responseStatus: 200,
-            responseData: { translatedText: '§TERM0§에 오신 것을 환영합니다' },
+            responseData: { translatedText: `${capturedPlaceholder}에 오신 것을 환영합니다` },
           });
         }),
       );
