@@ -12,6 +12,11 @@ import { TranslationProvider } from '../../common/enums/translation-provider.enu
 import { OutputMode } from '../../common/enums/output-mode.enum';
 import * as fsPromises from 'fs/promises';
 
+// cli-config.loader 모킹
+vi.mock('../config/cli-config.loader', () => ({
+  loadCliConfig: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from('pdf-data')),
 }));
@@ -66,6 +71,10 @@ describe('TranslateCommand', () => {
     mockTranslationService.translateBatch.mockResolvedValue(['Hola']);
     mockTranslationServiceFactory.getService.mockReturnValue(mockTranslationService);
 
+    // loadCliConfig 기본값 재설정
+    const { loadCliConfig } = await import('../config/cli-config.loader');
+    (loadCliConfig as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
     module = await Test.createTestingModule({
       providers: [
         TranslateCommand,
@@ -109,6 +118,7 @@ describe('TranslateCommand', () => {
       ['Hello'],
       'en',
       'ko',
+      undefined,
     );
     expect(mockPdfOverlayGenerator.overlay).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('file_ko.pdf'));
@@ -219,6 +229,157 @@ describe('TranslateCommand', () => {
     expect(overlayCall[2]).toBe('custom_output.pdf');
   });
 
+  // ── C-3: 페이지 범위 ────────────────────────────────────────────────────────
+  it('--pages 옵션이 extractBlocksByPages에 전달되어야 한다', async () => {
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+      pages: '1-3,5',
+    } as never);
+
+    expect(mockPdfExtractor.extractBlocksByPages).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      '1-3,5',
+    );
+  });
+
+  // ── C-4: 설정 파일 연동 ─────────────────────────────────────────────────────
+  it('설정 파일의 provider가 CLI 옵션이 없을 때 사용되어야 한다', async () => {
+    const { loadCliConfig } = await import('../config/cli-config.loader');
+    (loadCliConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      provider: 'gemini',
+    });
+
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      mode: OutputMode.OVERLAY,
+    } as never);
+
+    expect(mockTranslationServiceFactory.getService).toHaveBeenCalledWith('gemini');
+  });
+
+  it('CLI 옵션이 설정 파일보다 우선순위가 높아야 한다', async () => {
+    const { loadCliConfig } = await import('../config/cli-config.loader');
+    (loadCliConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      provider: 'gemini',
+    });
+
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+    } as never);
+
+    expect(mockTranslationServiceFactory.getService).toHaveBeenCalledWith(
+      TranslationProvider.MYMEMORY,
+    );
+  });
+
+  it('설정 파일의 glossaryPath가 translateBatch에 전달되어야 한다', async () => {
+    const { loadCliConfig } = await import('../config/cli-config.loader');
+    (loadCliConfig as ReturnType<typeof vi.fn>).mockResolvedValue({
+      glossaryPath: '/path/to/glossary.yml',
+    });
+
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+    } as never);
+
+    expect(mockTranslationService.translateBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(String),
+      'ko',
+      { glossaryPath: '/path/to/glossary.yml' },
+    );
+  });
+
+  // ── C-5: 용어집 연동 ────────────────────────────────────────────────────────
+  it('--glossary 옵션이 translateBatch에 전달되어야 한다', async () => {
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+      glossary: '/glossary.yml',
+    } as never);
+
+    expect(mockTranslationService.translateBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(String),
+      'ko',
+      { glossaryPath: '/glossary.yml' },
+    );
+  });
+
+  it('--glossary 미지정 시 translateBatch에 undefined 전달', async () => {
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+    } as never);
+
+    expect(mockTranslationService.translateBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(String),
+      'ko',
+      undefined,
+    );
+  });
+
+  // ── C-5: 재시도 ──────────────────────────────────────────────────────────────
+  it('번역 실패 시 재시도 후 성공하면 정상 완료', async () => {
+    mockTranslationService.translateBatch
+      .mockRejectedValueOnce(new Error('API Error'))
+      .mockResolvedValue(['안녕하세요']);
+
+    const logSpy = vi.spyOn(console, 'log');
+
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.MYMEMORY,
+      mode: OutputMode.OVERLAY,
+    } as never);
+
+    expect(mockTranslationService.translateBatch).toHaveBeenCalledTimes(2);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('attempt 1/3 failed'),
+    );
+    expect(mockPdfOverlayGenerator.overlay).toHaveBeenCalled();
+  });
+
+  it('번역 3회 모두 실패 시 process.exit(1) 호출', async () => {
+    mockTranslationService.translateBatch.mockRejectedValue(
+      new Error('API Error'),
+    );
+
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+
+    try {
+      await expect(
+        command.run([], {
+          input: '/some/file.pdf',
+          targetLang: 'ko',
+          provider: TranslationProvider.MYMEMORY,
+          mode: OutputMode.OVERLAY,
+        } as never),
+      ).rejects.toThrow('process.exit called');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
   // ── 옵션 파서 ──────────────────────────────────────────────────────────────
   describe('option parsers', () => {
     it('parseInput: 값 그대로 반환', () => {
@@ -277,6 +438,18 @@ describe('TranslateCommand', () => {
 
     it('parseFont: 값 그대로 반환', () => {
       expect(command.parseFont('/path/to/font.ttf')).toBe('/path/to/font.ttf');
+    });
+
+    it('parsePages: 값 그대로 반환', () => {
+      expect(command.parsePages('1-5,10')).toBe('1-5,10');
+    });
+
+    it('parseGlossary: 값 그대로 반환', () => {
+      expect(command.parseGlossary('/glossary.yml')).toBe('/glossary.yml');
+    });
+
+    it('parseBilingual: true 반환', () => {
+      expect(command.parseBilingual('')).toBe(true);
     });
   });
 });
