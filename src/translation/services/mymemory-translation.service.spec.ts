@@ -187,7 +187,7 @@ describe('MyMemoryTranslationService', () => {
       vi.spyOn(glossaryService, 'restore').mockImplementation((text, placeholders) => {
         let result = text;
         for (const [ph, original] of placeholders.entries()) {
-          result = result.replace(ph, original);
+          result = result.replaceAll(ph, original);
         }
         return result;
       });
