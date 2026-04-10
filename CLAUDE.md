@@ -180,7 +180,9 @@ assets/
 3. `Agent(subagent_type="code-reviewer")`로 PR 리뷰 요청
 4. 판정이 `REQUEST_CHANGES`면:
    a. 이슈 수정
-   b. PR에 아래 형식으로 ✅ 수정 완료 코멘트 게시:
+   b. **반드시 `pnpm build` → `pnpm lint` → `pnpm test` 재실행** (실패 시 수정 반복) — 수정 후 검증 없이 커밋 금지
+   c. `git commit` → `push`
+   d. PR에 아래 형식으로 ✅ 수정 완료 코멘트 게시:
       ```
       ✅ 수정 완료
 
@@ -190,7 +192,7 @@ assets/
       **변경**: 무엇을 어떻게 바꿨는가
       **이유**: 왜 이 접근을 선택했는가
       ```
-   c. 1번으로 돌아가기
+   e. 3번으로 돌아가기
 5. 판정이 `APPROVE`면: 완료 보고 후 종료
 
 ## PR 규칙

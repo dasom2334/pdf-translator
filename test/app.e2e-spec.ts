@@ -42,7 +42,7 @@ describe('CLI --help', () => {
       },
     );
     expect(output).toContain('translate');
-  });
+  }, 30000); // ts-node 초기 컴파일이 CI 환경에서 느릴 수 있어 여유 타임아웃 설정
 });
 
 describe('CLI E2E — TranslateCommand', () => {
