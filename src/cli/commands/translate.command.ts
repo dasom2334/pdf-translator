@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { Inject } from '@nestjs/common';
 import { Command, CommandRunner, Option } from 'nest-commander';
@@ -11,6 +12,7 @@ import {
   PDF_REBUILD_GENERATOR,
 } from '../../pdf/interfaces';
 import { TranslationServiceFactory } from '../../translation/factories/translation-service.factory';
+import { ITranslationService } from '../../translation/interfaces/translation-service.interface';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 import { OutputMode } from '../../common/enums/output-mode.enum';
 import { loadCliConfig } from '../config/cli-config.loader';
@@ -49,12 +51,28 @@ export class TranslateCommand extends CommandRunner {
     super();
   }
 
+  private validateLangCode(val: string, optName: string): string {
+    if (!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(val)) {
+      console.error(
+        `Error: Invalid language code "${val}" for ${optName}. Expected format: en, ko, zh-TW`,
+      );
+      process.exit(1);
+    }
+    return val;
+  }
+
   @Option({
     flags: '-i, --input <path>',
     description: 'Input PDF file path',
     required: true,
   })
   parseInput(val: string): string {
+    try {
+      fsSync.accessSync(val, fsSync.constants.R_OK);
+    } catch {
+      console.error(`Error: File not found or not readable: "${val}"`);
+      process.exit(1);
+    }
     return val;
   }
 
@@ -64,7 +82,7 @@ export class TranslateCommand extends CommandRunner {
     required: true,
   })
   parseTargetLang(val: string): string {
-    return val;
+    return this.validateLangCode(val, '--target-lang');
   }
 
   @Option({
@@ -72,7 +90,7 @@ export class TranslateCommand extends CommandRunner {
     description: 'Source language code',
   })
   parseSourceLang(val: string): string {
-    return val;
+    return val === 'auto' ? val : this.validateLangCode(val, '--source-lang');
   }
 
   @Option({
@@ -120,6 +138,12 @@ export class TranslateCommand extends CommandRunner {
     description: 'Path to custom TTF/OTF font file',
   })
   parseFont(val: string): string {
+    try {
+      fsSync.accessSync(val, fsSync.constants.R_OK);
+    } catch {
+      console.error(`Error: Font file not found or not readable: "${val}"`);
+      process.exit(1);
+    }
     return val;
   }
 
@@ -143,6 +167,12 @@ export class TranslateCommand extends CommandRunner {
     description: 'Path to glossary YAML/JSON file',
   })
   parseGlossary(val: string): string {
+    try {
+      fsSync.accessSync(val, fsSync.constants.R_OK);
+    } catch {
+      console.error(`Error: Glossary file not found or not readable: "${val}"`);
+      process.exit(1);
+    }
     return val;
   }
 
@@ -152,6 +182,36 @@ export class TranslateCommand extends CommandRunner {
   })
   parseBilingual(_val: string): boolean {
     return true;
+  }
+
+  private async translatePageWithRetry(
+    service: ITranslationService,
+    texts: string[],
+    sourceLang: string,
+    targetLang: string,
+    glossaryPath: string | undefined,
+    pageIdx: number,
+  ): Promise<string[]> {
+    for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+      try {
+        return await service.translateBatch(
+          texts,
+          sourceLang,
+          targetLang,
+          glossaryPath ? { glossaryPath } : undefined,
+        );
+      } catch (err) {
+        if (attempt < MAX_RETRY) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(
+            `\nTranslation attempt ${attempt}/${MAX_RETRY} failed for page ${pageIdx + 1}: ${msg}. Retrying...`,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw new Error('unreachable');
   }
 
   async run(
@@ -231,32 +291,15 @@ export class TranslateCommand extends CommandRunner {
           continue;
         }
 
-        let pageTranslated: string[] | null = null;
-        for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
-          try {
-            pageTranslated = await translationService.translateBatch(
-              pageTexts,
-              sourceLang,
-              targetLang,
-              glossaryPath ? { glossaryPath } : undefined,
-            );
-            break;
-          } catch (err: unknown) {
-            if (attempt < MAX_RETRY) {
-              const msg = err instanceof Error ? err.message : String(err);
-              console.log(
-                `\nTranslation attempt ${attempt}/${MAX_RETRY} failed for page ${pageIdx + 1}: ${msg}. Retrying...`,
-              );
-            } else {
-              throw err;
-            }
-          }
-        }
-
-        if (pageTranslated) {
-          translated.push(...pageTranslated);
-        }
-
+        const pageTranslated = await this.translatePageWithRetry(
+          translationService,
+          pageTexts,
+          sourceLang,
+          targetLang,
+          glossaryPath,
+          pageIdx,
+        );
+        translated.push(...pageTranslated);
         printProgress(pageIdx + 1, totalPages, 'pages');
       }
 
