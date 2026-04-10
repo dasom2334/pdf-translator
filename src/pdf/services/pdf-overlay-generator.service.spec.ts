@@ -14,7 +14,7 @@ import { TextBlock } from '../interfaces';
 
 async function createMinimalPdfBuffer(): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  doc.addPage([595, 842]); // A4
+  doc.addPage([100, 100]); // 작은 페이지 — pdfjs 렌더링 캔버스 크기를 줄여 테스트 속도 개선
   return Buffer.from(await doc.save());
 }
 
