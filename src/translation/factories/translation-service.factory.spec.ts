@@ -35,8 +35,6 @@ describe('TranslationServiceFactory', () => {
     myMemoryService = module.get<MyMemoryTranslationService>(MyMemoryTranslationService);
     geminiService = module.get<GeminiTranslationService>(GeminiTranslationService);
 
-    // Initialize Gemini service
-    geminiService.onModuleInit();
   });
 
   it('should be defined', () => {

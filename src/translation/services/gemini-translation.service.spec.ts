@@ -23,7 +23,6 @@ describe('GeminiTranslationService', () => {
     }).compile();
 
     service = module.get<GeminiTranslationService>(GeminiTranslationService);
-    service.onModuleInit();
   });
 
   afterEach(() => {
@@ -34,8 +33,8 @@ describe('GeminiTranslationService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('onModuleInit', () => {
-    it('should throw Error when GEMINI_API_KEY is not set', async () => {
+  describe('getModel (lazy init)', () => {
+    it('should throw TranslationException when GEMINI_API_KEY is not set', async () => {
       delete process.env.GEMINI_API_KEY;
 
       const module: TestingModule = await Test.createTestingModule({
@@ -43,11 +42,14 @@ describe('GeminiTranslationService', () => {
       }).compile();
 
       const uninitializedService = module.get<GeminiTranslationService>(GeminiTranslationService);
-      expect(() => uninitializedService.onModuleInit()).toThrow(Error);
-      expect(() => uninitializedService.onModuleInit()).toThrow('GEMINI_API_KEY');
+      await expect(uninitializedService.translate('hello', 'en', 'ko')).rejects.toThrow(TranslationException);
+      await expect(uninitializedService.translate('hello', 'en', 'ko')).rejects.toThrow('GEMINI_API_KEY');
     });
 
-    it('should initialize with valid API key', () => {
+    it('should initialize with valid API key on first translate call', async () => {
+      (vi.mocked(GoogleGenerativeAI) as ReturnType<typeof vi.fn>).mockClear();
+      mockGenerateContent.mockResolvedValueOnce({ response: { text: () => '안녕' } });
+      await service.translate('hello', 'en', 'ko');
       expect(GoogleGenerativeAI).toHaveBeenCalledWith('test-api-key');
     });
   });
@@ -210,16 +212,8 @@ describe('GeminiTranslationService', () => {
       }).compile();
 
       const svc = module.get<GeminiTranslationService>(GeminiTranslationService);
-      svc.onModuleInit();
 
-      const aiInstance = (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results[
-        (GoogleGenerativeAI as ReturnType<typeof vi.fn>).mock.results.length - 1
-      ].value as { getGenerativeModel: ReturnType<typeof vi.fn> };
-      const model = aiInstance.getGenerativeModel({ model: 'gemini-1.5-flash' }) as {
-        generateContent: ReturnType<typeof vi.fn>;
-      };
-
-      model.generateContent.mockImplementationOnce((prompt: string) => {
+      mockGenerateContent.mockImplementationOnce((prompt: string) => {
         // Placeholder should be in the prompt, not "Google"
         expect(prompt).not.toContain('Google');
         return Promise.resolve({
