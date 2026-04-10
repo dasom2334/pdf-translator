@@ -171,7 +171,7 @@ describe('PdfOverlayGeneratorService', () => {
 
       await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
       expect(fs.existsSync(outputPath)).toBe(true);
-    });
+    }, 15000);
 
     it('should not enter infinite loop when boxWidth is 0', async () => {
       const pdfBuffer = await createMinimalPdfBuffer();

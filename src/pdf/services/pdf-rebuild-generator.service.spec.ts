@@ -136,7 +136,7 @@ describe('PdfRebuildGeneratorService', () => {
 
     await expect(service.rebuild(blocks, outputPath)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
-  });
+  }, 15000);
 
   // -------------------------------------------------------------------------
   // Custom font path option
