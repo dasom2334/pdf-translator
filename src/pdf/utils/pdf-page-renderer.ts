@@ -14,13 +14,20 @@ export interface RenderedPage {
 }
 
 /**
- * Renders every page of a PDF to a PNG buffer using pdfjs-dist + @napi-rs/canvas.
+ * Renders selected pages of a PDF to PNG buffers using pdfjs-dist + @napi-rs/canvas.
+ *
+ * @param pdfBuffer  Raw PDF bytes.
+ * @param pageNumbers  1-based page numbers to render. When omitted, all pages are rendered.
+ * @returns Map keyed by 1-based page number.
  *
  * pdfjs-dist already depends on @napi-rs/canvas for its internal NodeCanvasFactory,
  * so using the same package here ensures all canvases are the same type.
  * No custom CanvasFactory injection needed.
  */
-export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
+export async function renderPdfPages(
+  pdfBuffer: Buffer,
+  pageNumbers?: Set<number>,
+): Promise<Map<number, RenderedPage>> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs') as {
     getDocument: (params: { data: Uint8Array }) => {
@@ -42,9 +49,12 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     );
   }
 
-  const pages: RenderedPage[] = [];
+  const pages = new Map<number, RenderedPage>();
 
   for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+    // pageNumbers가 지정된 경우 해당 페이지만 렌더링 (성능 최적화)
+    if (pageNumbers && !pageNumbers.has(pageNum)) continue;
+
     const page = await pdfDoc.getPage(pageNum);
     const viewport = page.getViewport({ scale: 1.0 });
     const renderViewport = page.getViewport({ scale: RENDER_SCALE });
@@ -60,7 +70,7 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
       viewport: renderViewport,
     }).promise;
 
-    pages.push({
+    pages.set(pageNum, {
       // @napi-rs/canvas의 toBuffer()는 Node.js Buffer와 호환되나 타입이 다르므로 캐스팅
       pngBuffer: canvas.toBuffer('image/png') as unknown as Buffer,
       // 원본 PDF 포인트 단위 크기 (1 point = 1/72 inch) — overlay 시 1:1 매핑용

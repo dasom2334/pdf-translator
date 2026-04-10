@@ -8,7 +8,7 @@ import {
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { IPdfOverlayGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
-import { renderPdfPages } from '../utils/pdf-page-renderer';
+import { renderPdfPages, RenderedPage } from '../utils/pdf-page-renderer';
 
 const MIN_FONT_SIZE = 4;
 const ELLIPSIS = '...';
@@ -152,12 +152,33 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     outputPath: string,
     options?: PdfGenerateOptions,
   ): Promise<void> {
-    // Render every page of the original PDF to a PNG image.
-    // This preserves backgrounds, images, and vector graphics as a raster layer,
-    // and makes the overlay independent of the PDF's content stream encoding.
-    const pageImages = await renderPdfPages(originalBuffer);
+    // Group translated blocks by page number
+    const blocksByPage = new Map<number, TextBlock[]>();
+    for (const block of blocks) {
+      if (!block.translatedText) continue;
+      if (!blocksByPage.has(block.page)) blocksByPage.set(block.page, []);
+      blocksByPage.get(block.page)!.push(block);
+    }
 
-    // Build a new PDF document with page images as backgrounds.
+    // Only render pages that actually have translated blocks — avoids rasterizing
+    // the entire PDF when --pages selects a small subset of a large document.
+    const usedPages = new Set(blocksByPage.keys());
+    // usedPages가 비어 있으면 렌더링할 페이지가 없으므로 빈 Map을 직접 사용
+    const pageImages: Map<number, RenderedPage> =
+      usedPages.size > 0 ? await renderPdfPages(originalBuffer, usedPages) : new Map();
+
+    // Load original PDF for copying pages that need no overlay.
+    let srcDoc: PDFDocument;
+    try {
+      srcDoc = await PDFDocument.load(originalBuffer);
+    } catch (err) {
+      throw new InternalServerErrorException(
+        `PDF 페이지 렌더링 실패: ${(err as Error).message}`,
+      );
+    }
+    const totalPages = srcDoc.getPageCount();
+
+    // Build a new PDF document.
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
@@ -173,19 +194,19 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     const fallbackFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const font = customFont ?? fallbackFont;
 
-    // Group translated blocks by page number
-    const blocksByPage = new Map<number, TextBlock[]>();
-    for (const block of blocks) {
-      if (!block.translatedText) continue;
-      if (!blocksByPage.has(block.page)) blocksByPage.set(block.page, []);
-      blocksByPage.get(block.page)!.push(block);
-    }
+    // For each page: if it has overlay blocks, rasterize + overlay; otherwise copy as-is.
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const rendered = pageImages.get(pageNum);
 
-    // For each rendered page, create a pdf-lib page with the image as background
-    // then draw white boxes + translated text on top.
-    for (let i = 0; i < pageImages.length; i++) {
-      const { pngBuffer, width, height } = pageImages[i];
-      const pageNum = i + 1;
+      if (!rendered) {
+        // No translated blocks on this page — copy directly from the original PDF
+        // without rasterization, preserving vector quality and saving memory.
+        const [copiedPage] = await pdfDoc.copyPages(srcDoc, [pageNum - 1]);
+        pdfDoc.addPage(copiedPage);
+        continue;
+      }
+
+      const { pngBuffer, width, height } = rendered;
 
       let pngImage;
       try {

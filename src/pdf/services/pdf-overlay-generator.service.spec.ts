@@ -236,6 +236,30 @@ describe('PdfOverlayGeneratorService', () => {
   });
 
   // -------------------------------------------------------------------------
+  // 페이지 범위 최적화: 번역 블록이 있는 페이지만 렌더링하고 나머지는 복사
+  // -------------------------------------------------------------------------
+
+  it('should output all pages even when only some pages have translated blocks', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([595, 842]); // page 1 — 번역 블록 없음
+    doc.addPage([595, 842]); // page 2 — 번역 블록 있음
+    doc.addPage([595, 842]); // page 3 — 번역 블록 없음
+    const pdfBuffer = Buffer.from(await doc.save());
+
+    const outputPath = path.join(tmpDir, 'output-partial-pages.pdf');
+    const blocks: TextBlock[] = [
+      makeBlock({ page: 2, x: 50, y: 100, translatedText: '두 번째 페이지만 번역' }),
+    ];
+
+    await service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS);
+
+    // 출력 PDF가 원본과 동일한 3페이지를 포함해야 한다
+    const writtenBytes = fs.readFileSync(outputPath);
+    const outDoc = await PDFDocument.load(writtenBytes);
+    expect(outDoc.getPageCount()).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
   // PDF 콘텐츠 스트림에서 텍스트 명령어(BT...ET) 제거
   // -------------------------------------------------------------------------
 
