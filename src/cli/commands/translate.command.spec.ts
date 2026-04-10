@@ -23,10 +23,14 @@ vi.mock('fs/promises', () => ({
 }));
 
 // 동기 fs 모킹 (parseInput/parseFont/parseGlossary 파일 존재 검증용)
-vi.mock('fs', () => ({
-  accessSync: vi.fn(), // 기본값: 예외 없음 = 파일 존재
-  constants: { R_OK: 4 },
-}));
+// constants는 importOriginal로 실제 node:fs 값을 사용하여 하드코딩 불일치를 방지한다
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    accessSync: vi.fn(), // 기본값: 예외 없음 = 파일 존재
+    constants: actual.constants,
+  };
+});
 
 const mockBlock: TextBlock = {
   text: 'Hello',
@@ -419,6 +423,18 @@ describe('TranslateCommand', () => {
       });
       try {
         expect(() => command.parseTargetLang('INVALID')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+
+    it('parseTargetLang: 빈 문자열 → process.exit(1)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseTargetLang('')).toThrow('process.exit called');
         expect(exitSpy).toHaveBeenCalledWith(1);
       } finally {
         exitSpy.mockRestore();

@@ -192,6 +192,7 @@ export class TranslateCommand extends CommandRunner {
     glossaryPath: string | undefined,
     pageIdx: number,
   ): Promise<string[]> {
+    let lastErr: unknown;
     for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
       try {
         return await service.translateBatch(
@@ -201,17 +202,16 @@ export class TranslateCommand extends CommandRunner {
           glossaryPath ? { glossaryPath } : undefined,
         );
       } catch (err) {
+        lastErr = err;
         if (attempt < MAX_RETRY) {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(
             `\nTranslation attempt ${attempt}/${MAX_RETRY} failed for page ${pageIdx + 1}: ${msg}. Retrying...`,
           );
-        } else {
-          throw err;
         }
       }
     }
-    throw new Error('unreachable');
+    throw lastErr;
   }
 
   async run(
