@@ -641,6 +641,34 @@ describe('PdfExtractorService', () => {
       expect(mockGetPage).toHaveBeenCalledTimes(3);
     });
 
+    it('should return all pages when pageRange is empty string', async () => {
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
+      });
+
+      const result = await service.extractBlocksByPages(validPdfHeader, '');
+      expect(result).toHaveLength(3);
+      expect(mockGetPage).toHaveBeenCalledTimes(3);
+    });
+
+    it('should return all pages when pageRange is whitespace-only', async () => {
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
+      });
+
+      const result = await service.extractBlocksByPages(validPdfHeader, '   ');
+      expect(result).toHaveLength(3);
+      expect(mockGetPage).toHaveBeenCalledTimes(3);
+    });
+
     it('should return only specified pages when pageRange given', async () => {
       const mockItems = [
         {

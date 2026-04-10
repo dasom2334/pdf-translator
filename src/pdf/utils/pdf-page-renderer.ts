@@ -35,7 +35,7 @@ export async function renderPdfPages(
     };
   };
 
-  let pdfDoc: PdfjsDocument;
+  let pdfDoc: PdfjsDocument | undefined;
   try {
     // CanvasFactory를 따로 주입하지 않는다.
     // pdfjs는 내부 서브 캔버스 생성에 기본 NodeCanvasFactory(@napi-rs/canvas)를 사용하고,
@@ -82,7 +82,7 @@ export async function renderPdfPages(
       page.cleanup();
     }
   } finally {
-    await pdfDoc.destroy();
+    await pdfDoc?.destroy();
   }
 
   return pages;
