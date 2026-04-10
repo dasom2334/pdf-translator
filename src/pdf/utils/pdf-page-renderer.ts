@@ -1,4 +1,4 @@
-import { createCanvas } from 'canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import { InternalServerErrorException } from '@nestjs/common';
 
 /** Render scale for page rasterization (2.0 = 144 dpi). */
@@ -14,21 +14,28 @@ export interface RenderedPage {
 }
 
 /**
- * Renders every page of a PDF to a PNG buffer using pdfjs-dist + node-canvas.
+ * Renders every page of a PDF to a PNG buffer using pdfjs-dist + @napi-rs/canvas.
  *
- * Each PNG is rendered at RENDER_SCALE (144 dpi) for acceptable quality while
- * keeping the returned RenderedPage.width/height at the original PDF-point
- * dimensions so callers can place the image at 1:1 in a new pdf-lib document.
+ * pdfjs-dist already depends on @napi-rs/canvas for its internal NodeCanvasFactory,
+ * so using the same package here ensures all canvases are the same type.
+ * No custom CanvasFactory injection needed.
  */
 export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs') as {
-    getDocument: (params: { data: Uint8Array }) => { promise: Promise<PdfjsDocument> };
+    getDocument: (params: { data: Uint8Array }) => {
+      promise: Promise<PdfjsDocument>;
+    };
   };
 
   let pdfDoc: PdfjsDocument;
   try {
-    pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+    // CanvasFactory를 따로 주입하지 않는다.
+    // pdfjs는 내부 서브 캔버스 생성에 기본 NodeCanvasFactory(@napi-rs/canvas)를 사용하고,
+    // 우리 메인 캔버스도 같은 패키지를 쓰므로 drawImage 타입 충돌이 없다.
+    pdfDoc = await pdfjs.getDocument({
+      data: new Uint8Array(pdfBuffer),
+    }).promise;
   } catch (err) {
     throw new InternalServerErrorException(
       `PDF 페이지 렌더링 실패: ${(err as Error).message}`,
@@ -54,7 +61,9 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     }).promise;
 
     pages.push({
-      pngBuffer: canvas.toBuffer('image/png'),
+      // @napi-rs/canvas의 toBuffer()는 Node.js Buffer와 호환되나 타입이 다르므로 캐스팅
+      pngBuffer: canvas.toBuffer('image/png') as unknown as Buffer,
+      // 원본 PDF 포인트 단위 크기 (1 point = 1/72 inch) — overlay 시 1:1 매핑용
       width: viewport.width,
       height: viewport.height,
     });
@@ -67,7 +76,7 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
 }
 
 // ---------------------------------------------------------------------------
-// Minimal pdfjs type stubs (avoid importing the full ESM type declarations)
+// Minimal pdfjs type stubs
 // ---------------------------------------------------------------------------
 
 interface PdfjsDocument {
@@ -78,7 +87,10 @@ interface PdfjsDocument {
 
 interface PdfjsPage {
   getViewport(params: { scale: number }): PdfjsViewport;
-  render(params: { canvasContext: CanvasRenderingContext2D; viewport: PdfjsViewport }): { promise: Promise<void> };
+  render(params: {
+    canvasContext: CanvasRenderingContext2D;
+    viewport: PdfjsViewport;
+  }): { promise: Promise<void> };
   cleanup(): void;
 }
 

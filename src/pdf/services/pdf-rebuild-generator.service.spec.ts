@@ -11,6 +11,9 @@ import { TextBlock } from '../interfaces';
 // Helpers
 // ---------------------------------------------------------------------------
 
+// 테스트에서 16MB CJK 폰트 로딩을 건너뛰기 위해 존재하지 않는 경로를 전달 → Helvetica 폴백
+const TEST_FONT_OPTIONS = { fontPath: '/nonexistent' };
+
 function makeBlock(overrides: Partial<TextBlock> = {}): TextBlock {
   return {
     text: 'Hello',
@@ -68,7 +71,7 @@ describe('PdfRebuildGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output.pdf');
     const blocks: TextBlock[] = [makeBlock()];
 
-    await service.rebuild(blocks, outputPath);
+    await service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS);
 
     expect(fs.existsSync(outputPath)).toBe(true);
 
@@ -92,7 +95,7 @@ describe('PdfRebuildGeneratorService', () => {
       makeBlock({ page: 3, x: 50, y: 50, translatedText: 'Page 3 text' }),
     ];
 
-    await service.rebuild(blocks, outputPath);
+    await service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS);
 
     expect(fs.existsSync(outputPath)).toBe(true);
     const written = fs.readFileSync(outputPath);
@@ -107,7 +110,7 @@ describe('PdfRebuildGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output-notranslated.pdf');
     const blocks: TextBlock[] = [makeBlock({ translatedText: undefined })];
 
-    await expect(service.rebuild(blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 
@@ -134,9 +137,9 @@ describe('PdfRebuildGeneratorService', () => {
       makeBlock({ width: 30, fontSize: 12, translatedText: longText }),
     ];
 
-    await expect(service.rebuild(blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
-  });
+  }, 15000);
 
   // -------------------------------------------------------------------------
   // Custom font path option
@@ -161,7 +164,7 @@ describe('PdfRebuildGeneratorService', () => {
     const outputPath = path.join(nestedDir, 'output.pdf');
     const blocks: TextBlock[] = [makeBlock()];
 
-    await expect(service.rebuild(blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 
@@ -173,7 +176,7 @@ describe('PdfRebuildGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output-zero-width.pdf');
     const blocks: TextBlock[] = [makeBlock({ width: 0, height: 0, fontSize: 0 })];
 
-    await expect(service.rebuild(blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.rebuild(blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 });

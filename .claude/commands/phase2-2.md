@@ -34,13 +34,5 @@ Branch: feature/cli-enhanced
 6. 유닛 테스트
 
 ## 자동 교정 + 리뷰 루프
-다음을 APPROVE가 날 때까지 반복하세요:
-1. pnpm build → pnpm lint → pnpm test 통과 확인 (실패 시 수정 반복)
-2. git commit → push (최초 1회는 PR 생성, 이후에는 push만)
-3. Agent(subagent_type="code-reviewer")로 PR 리뷰 요청 (리뷰어가 🔍 문제 발견 코멘트 게시)
-4. 판정이 REQUEST_CHANGES면:
-   a. 이슈 수정
-   b. PR에 ✅ 수정 완료 코멘트 게시
-   c. 1번으로 돌아가기
-5. 판정이 APPROVE면: 완료 보고 후 종료")
+CLAUDE.md의 '자동 교정 + 리뷰 루프 (에이전트 공통)' 섹션을 따른다.")
 ```

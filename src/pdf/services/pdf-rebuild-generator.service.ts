@@ -18,12 +18,22 @@ const ELLIPSIS = '...';
  */
 const DEFAULT_FONT_PATH = path.resolve(
   __dirname,
-  '../../../../assets/fonts/NotoSansCJKkr-Regular.otf',
+  '../../../assets/fonts/NotoSansCJKkr-Regular.otf',
 );
 
 @Injectable()
 export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
   private readonly logger = new Logger(PdfRebuildGeneratorService.name);
+  // 같은 경로의 폰트 파일은 첫 호출에만 읽고 이후 재사용 — 16MB I/O 중복 방지
+  private readonly fontBytesCache = new Map<string, Buffer>();
+
+  private readFontBytes(fontPath: string): Buffer | null {
+    if (this.fontBytesCache.has(fontPath)) return this.fontBytesCache.get(fontPath)!;
+    if (!fs.existsSync(fontPath)) return null;
+    const bytes = Buffer.from(fs.readFileSync(fontPath));
+    this.fontBytesCache.set(fontPath, bytes);
+    return bytes;
+  }
 
   /**
    * Fit text into the given width by shrinking font size or truncating with ellipsis.
@@ -89,17 +99,14 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
     // Register fontkit for custom font embedding
     newDoc.registerFontkit(fontkit);
 
-    // Load font
+    // Load font (bytes cached per path to avoid repeated 16MB disk reads)
     const fontPath = options?.fontPath ?? DEFAULT_FONT_PATH;
     let customFont: Awaited<ReturnType<PDFDocument['embedFont']>> | null = null;
 
     try {
-      if (fs.existsSync(fontPath)) {
-        const fontBytes = fs.readFileSync(fontPath);
-        customFont = await newDoc.embedFont(fontBytes);
-      }
+      const fontBytes = this.readFontBytes(fontPath);
+      if (fontBytes) customFont = await newDoc.embedFont(fontBytes);
     } catch {
-      // Fall back to standard font
       customFont = null;
     }
 

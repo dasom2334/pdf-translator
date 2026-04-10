@@ -9,6 +9,7 @@ const MAX_CHUNK_SIZE = 500;
 const OVERLAP_SENTENCES = 1;
 const DAILY_LIMIT_STATUS = 429;
 
+
 const SUPPORTED_LANGUAGES = [
   'af', 'sq', 'am', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs',
   'bg', 'ca', 'ceb', 'zh', 'co', 'hr', 'cs', 'da', 'nl', 'en',
@@ -34,9 +35,11 @@ export class MyMemoryTranslationService implements ITranslationService {
     sourceLang: string,
     targetLang: string,
   ): Promise<string> {
+    const email = process.env.MYMEMORY_EMAIL;
     const params = new URLSearchParams({
       q: chunk,
       langpair: `${sourceLang}|${targetLang}`,
+      ...(email ? { de: email } : {}),
     });
     const url = `${MYMEMORY_API_URL}?${params.toString()}`;
 

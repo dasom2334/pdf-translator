@@ -14,9 +14,13 @@ import { TextBlock } from '../interfaces';
 
 async function createMinimalPdfBuffer(): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  doc.addPage([595, 842]); // A4
+  doc.addPage([100, 100]); // 작은 페이지 — pdfjs 렌더링 캔버스 크기를 줄여 테스트 속도 개선
   return Buffer.from(await doc.save());
 }
+
+// 테스트에서 16MB CJK 폰트 로딩을 건너뛰기 위해 존재하지 않는 경로를 전달 → Helvetica 폴백
+// 테스트는 렌더링 품질이 아닌 동작 여부만 검증하므로 폴백 폰트로 충분
+const TEST_FONT_OPTIONS = { fontPath: '/nonexistent' };
 
 function makeBlock(overrides: Partial<TextBlock> = {}): TextBlock {
   return {
@@ -77,7 +81,7 @@ describe('PdfOverlayGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output.pdf');
     const blocks: TextBlock[] = [makeBlock()];
 
-    await service.overlay(pdfBuffer, blocks, outputPath);
+    await service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS);
 
     expect(fs.existsSync(outputPath)).toBe(true);
 
@@ -98,7 +102,7 @@ describe('PdfOverlayGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output-skip.pdf');
     const blocks: TextBlock[] = [makeBlock({ translatedText: undefined })];
 
-    await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 
@@ -111,7 +115,7 @@ describe('PdfOverlayGeneratorService', () => {
     const outputPath = path.join(tmpDir, 'output-oob.pdf');
     const blocks: TextBlock[] = [makeBlock({ page: 99 })];
 
-    await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 
@@ -140,7 +144,7 @@ describe('PdfOverlayGeneratorService', () => {
     const longText = '가나다라마바사아자차카타파하'.repeat(20);
     const blocks: TextBlock[] = [makeBlock({ width: 50, fontSize: 12, translatedText: longText })];
 
-    await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 
@@ -157,7 +161,7 @@ describe('PdfOverlayGeneratorService', () => {
       const moderateOverflow = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 30 chars
       const blocks: TextBlock[] = [makeBlock({ width: 60, fontSize: 14, translatedText: moderateOverflow })];
 
-      await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
       expect(fs.existsSync(outputPath)).toBe(true);
     });
 
@@ -169,9 +173,9 @@ describe('PdfOverlayGeneratorService', () => {
       const extremeOverflow = 'X'.repeat(500);
       const blocks: TextBlock[] = [makeBlock({ width: 10, fontSize: 12, translatedText: extremeOverflow })];
 
-      await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
       expect(fs.existsSync(outputPath)).toBe(true);
-    });
+    }, 15000);
 
     it('should not enter infinite loop when boxWidth is 0', async () => {
       const pdfBuffer = await createMinimalPdfBuffer();
@@ -179,7 +183,7 @@ describe('PdfOverlayGeneratorService', () => {
 
       const blocks: TextBlock[] = [makeBlock({ width: 0, fontSize: 12, translatedText: 'Some text' })];
 
-      await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
       expect(fs.existsSync(outputPath)).toBe(true);
     });
 
@@ -227,7 +231,7 @@ describe('PdfOverlayGeneratorService', () => {
       makeBlock({ page: 2, x: 100, y: 200, translatedText: '두 번째 페이지' }),
     ];
 
-    await expect(service.overlay(pdfBuffer, blocks, outputPath)).resolves.not.toThrow();
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
   });
 

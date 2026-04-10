@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ITranslationService } from '../interfaces/translation-service.interface';
 import { TranslationException } from '../../common/exceptions/translation.exception';
@@ -22,21 +22,24 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 @Injectable()
-export class GeminiTranslationService implements ITranslationService, OnModuleInit {
+export class GeminiTranslationService implements ITranslationService {
   private readonly logger = new Logger(GeminiTranslationService.name);
-  private model!: GenerativeModel;
+  private model: GenerativeModel | null = null;
 
   constructor(private readonly glossaryService: GlossaryService) {}
 
-  onModuleInit(): void {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error(
-        'GEMINI_API_KEY environment variable is required for GeminiTranslationService',
-      );
+  private getModel(): GenerativeModel {
+    if (!this.model) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new TranslationException(
+          'GEMINI_API_KEY environment variable is required for Gemini translation',
+        );
+      }
+      const genAI = new GoogleGenerativeAI(apiKey);
+      this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     }
-    const genAI = new GoogleGenerativeAI(apiKey);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    return this.model;
   }
 
   private buildPrompt(text: string, sourceLang: string, targetLang: string): string {
@@ -70,7 +73,7 @@ export class GeminiTranslationService implements ITranslationService, OnModuleIn
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
-        const result = await this.model.generateContent(prompt);
+        const result = await this.getModel().generateContent(prompt);
         const response = result.response;
         const translated = response.text().trim();
         return translated;
