@@ -232,6 +232,51 @@ describe('GeminiTranslationService', () => {
     });
   });
 
+  describe('503 overloaded retry', () => {
+    it('should retry on 503 error and succeed on next attempt', async () => {
+      mockGenerateContent
+        .mockRejectedValueOnce(new Error('503 Service Unavailable: overloaded'))
+        .mockResolvedValueOnce({ response: { text: () => '안녕하세요' } });
+
+      const result = await service.translate('Hello', 'en', 'ko');
+      expect(result).toBe('안녕하세요');
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it('should retry on "overloaded" error message', async () => {
+      mockGenerateContent
+        .mockRejectedValueOnce(new Error('The model is overloaded'))
+        .mockResolvedValueOnce({ response: { text: () => '세계' } });
+
+      const result = await service.translate('World', 'en', 'ko');
+      expect(result).toBe('세계');
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('translateBatch concurrency', () => {
+    it('should not exceed BATCH_CONCURRENCY=5 simultaneous calls', async () => {
+      let maxConcurrent = 0;
+      let current = 0;
+
+      const translateSpy = vi.spyOn(service, 'translate').mockImplementation(
+        async () => {
+          current++;
+          maxConcurrent = Math.max(maxConcurrent, current);
+          await new Promise((r) => setTimeout(r, 10));
+          current--;
+          return '번역';
+        },
+      );
+
+      const texts = Array.from({ length: 10 }, (_, i) => `text${i}`);
+      await service.translateBatch(texts, 'en', 'ko');
+
+      expect(translateSpy).toHaveBeenCalledTimes(10);
+      expect(maxConcurrent).toBeLessThanOrEqual(5);
+    });
+  });
+
   describe('getSupportedLanguages', () => {
     it('should return an array of language codes', async () => {
       const languages = await service.getSupportedLanguages();

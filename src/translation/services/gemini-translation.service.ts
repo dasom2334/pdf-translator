@@ -4,11 +4,14 @@ import { ITranslationService } from '../interfaces/translation-service.interface
 import { TranslationException } from '../../common/exceptions/translation.exception';
 import { GlossaryService } from './glossary.service';
 import { postProcessTranslation, splitIntoChunksWithOverlap } from '../utils/translation.utils';
+import { mapWithConcurrency } from '../../common/utils/concurrency';
 
 const MAX_CHUNK_SIZE = 4000;
 const OVERLAP_SENTENCES = 1;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000;
+/** Gemini Flash 무료 RPM=15 기준 안전 마진 */
+const BATCH_CONCURRENCY = 5;
 
 const SUPPORTED_LANGUAGES = [
   'af', 'sq', 'am', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs',
@@ -58,8 +61,10 @@ export class GeminiTranslationService implements ITranslationService {
     const message = (error as Error)?.message ?? '';
     return (
       message.includes('429') ||
+      message.includes('503') ||
       message.toLowerCase().includes('rate limit') ||
-      message.toLowerCase().includes('quota')
+      message.toLowerCase().includes('quota') ||
+      message.toLowerCase().includes('overloaded')
     );
   }
 
@@ -122,19 +127,18 @@ export class GeminiTranslationService implements ITranslationService {
     const terms = options?.glossaryPath
       ? this.glossaryService.loadGlossary(options.glossaryPath)
       : {};
+    const hasGlossary =
+      options?.glossaryPath && Object.keys(terms).length > 0;
 
-    const results: string[] = [];
-    for (const text of texts) {
-      if (!options?.glossaryPath || Object.keys(terms).length === 0) {
-        const translated = await this.translate(text, sourceLang, targetLang);
-        results.push(translated);
-      } else {
-        const { text: substituted, placeholders } = this.glossaryService.substitute(text, terms);
-        const translated = await this.translate(substituted, sourceLang, targetLang);
-        results.push(this.glossaryService.restore(translated, placeholders));
+    return mapWithConcurrency(texts, BATCH_CONCURRENCY, async (text) => {
+      if (!hasGlossary) {
+        return this.translate(text, sourceLang, targetLang);
       }
-    }
-    return results;
+      const { text: substituted, placeholders } =
+        this.glossaryService.substitute(text, terms);
+      const translated = await this.translate(substituted, sourceLang, targetLang);
+      return this.glossaryService.restore(translated, placeholders);
+    });
   }
 
   async getSupportedLanguages(): Promise<string[]> {

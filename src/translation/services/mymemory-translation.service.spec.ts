@@ -210,6 +210,29 @@ describe('MyMemoryTranslationService', () => {
     });
   });
 
+  describe('translateBatch concurrency', () => {
+    it('should not exceed BATCH_CONCURRENCY=3 simultaneous calls', async () => {
+      let maxConcurrent = 0;
+      let current = 0;
+
+      const translateSpy = vi.spyOn(service, 'translate').mockImplementation(
+        async () => {
+          current++;
+          maxConcurrent = Math.max(maxConcurrent, current);
+          await new Promise((r) => setTimeout(r, 10));
+          current--;
+          return '번역';
+        },
+      );
+
+      const texts = Array.from({ length: 9 }, (_, i) => `text${i}`);
+      await service.translateBatch(texts, 'en', 'ko');
+
+      expect(translateSpy).toHaveBeenCalledTimes(9);
+      expect(maxConcurrent).toBeLessThanOrEqual(3);
+    });
+  });
+
   describe('getSupportedLanguages', () => {
     it('should return an array of language codes', async () => {
       const languages = await service.getSupportedLanguages();

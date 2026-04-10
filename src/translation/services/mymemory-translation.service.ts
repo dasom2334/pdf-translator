@@ -3,11 +3,15 @@ import { ITranslationService } from '../interfaces/translation-service.interface
 import { TranslationException } from '../../common/exceptions/translation.exception';
 import { GlossaryService } from './glossary.service';
 import { postProcessTranslation, splitIntoChunksWithOverlap } from '../utils/translation.utils';
+import { mapWithConcurrency } from '../../common/utils/concurrency';
 
 const MYMEMORY_API_URL = 'https://api.mymemory.translated.net/get';
 const MAX_CHUNK_SIZE = 500;
 const OVERLAP_SENTENCES = 1;
 const DAILY_LIMIT_STATUS = 429;
+/** Promise.all 무제한 병렬 → rate limit 자기유발 방지 */
+const CHUNK_CONCURRENCY = 3;
+const BATCH_CONCURRENCY = 3;
 
 
 const SUPPORTED_LANGUAGES = [
@@ -92,8 +96,10 @@ export class MyMemoryTranslationService implements ITranslationService {
     }
 
     const chunks = splitIntoChunksWithOverlap(text, MAX_CHUNK_SIZE, OVERLAP_SENTENCES);
-    const translatedChunks = await Promise.all(
-      chunks.map((chunk) => this.translateChunk(chunk, sourceLang, targetLang)),
+    const translatedChunks = await mapWithConcurrency(
+      chunks,
+      CHUNK_CONCURRENCY,
+      (chunk) => this.translateChunk(chunk, sourceLang, targetLang),
     );
 
     return postProcessTranslation(translatedChunks.join('\n\n'));
@@ -108,19 +114,18 @@ export class MyMemoryTranslationService implements ITranslationService {
     const terms = options?.glossaryPath
       ? this.glossaryService.loadGlossary(options.glossaryPath)
       : {};
+    const hasGlossary =
+      options?.glossaryPath && Object.keys(terms).length > 0;
 
-    const results: string[] = [];
-    for (const text of texts) {
-      if (!options?.glossaryPath || Object.keys(terms).length === 0) {
-        const translated = await this.translate(text, sourceLang, targetLang);
-        results.push(translated);
-      } else {
-        const { text: substituted, placeholders } = this.glossaryService.substitute(text, terms);
-        const translated = await this.translate(substituted, sourceLang, targetLang);
-        results.push(this.glossaryService.restore(translated, placeholders));
+    return mapWithConcurrency(texts, BATCH_CONCURRENCY, async (text) => {
+      if (!hasGlossary) {
+        return this.translate(text, sourceLang, targetLang);
       }
-    }
-    return results;
+      const { text: substituted, placeholders } =
+        this.glossaryService.substitute(text, terms);
+      const translated = await this.translate(substituted, sourceLang, targetLang);
+      return this.glossaryService.restore(translated, placeholders);
+    });
   }
 
   async getSupportedLanguages(): Promise<string[]> {
