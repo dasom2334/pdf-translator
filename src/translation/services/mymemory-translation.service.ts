@@ -9,8 +9,7 @@ const MYMEMORY_API_URL = 'https://api.mymemory.translated.net/get';
 const MAX_CHUNK_SIZE = 500;
 const OVERLAP_SENTENCES = 1;
 const DAILY_LIMIT_STATUS = 429;
-/** Promise.all 무제한 병렬 → rate limit 자기유발 방지 */
-const CHUNK_CONCURRENCY = 3;
+/** translateBatch 병렬화 상한 — rate limit 자기유발 방지 */
 const BATCH_CONCURRENCY = 3;
 
 
@@ -96,11 +95,12 @@ export class MyMemoryTranslationService implements ITranslationService {
     }
 
     const chunks = splitIntoChunksWithOverlap(text, MAX_CHUNK_SIZE, OVERLAP_SENTENCES);
-    const translatedChunks = await mapWithConcurrency(
-      chunks,
-      CHUNK_CONCURRENCY,
-      (chunk) => this.translateChunk(chunk, sourceLang, targetLang),
-    );
+    const translatedChunks: string[] = [];
+    for (const chunk of chunks) {
+      translatedChunks.push(
+        await this.translateChunk(chunk, sourceLang, targetLang),
+      );
+    }
 
     return postProcessTranslation(translatedChunks.join('\n\n'));
   }
