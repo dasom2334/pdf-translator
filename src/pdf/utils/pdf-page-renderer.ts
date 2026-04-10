@@ -1,4 +1,4 @@
-import { createCanvas } from 'canvas';
+import { createCanvas } from '@napi-rs/canvas';
 import { InternalServerErrorException } from '@nestjs/common';
 
 /** Render scale for page rasterization (2.0 = 144 dpi). */
@@ -14,62 +14,27 @@ export interface RenderedPage {
 }
 
 /**
- * Canvas factory for pdfjs-dist in Node.js.
+ * Renders every page of a PDF to a PNG buffer using pdfjs-dist + @napi-rs/canvas.
  *
- * pdfjs's getDocument() accepts a `CanvasFactory` class (constructor).
- * All canvas objects — main render canvas and pdfjs internal sub-canvases
- * (transparency groups, patterns) — are created through this factory,
- * ensuring type consistency when drawImage is called across them.
- */
-class NodeCanvasFactory {
-  create(width: number, height: number) {
-    const canvas = createCanvas(width, height);
-    return { canvas, context: canvas.getContext('2d') };
-  }
-
-  reset(
-    cac: { canvas: ReturnType<typeof createCanvas>; context: unknown },
-    width: number,
-    height: number,
-  ) {
-    cac.canvas.width = width;
-    cac.canvas.height = height;
-    cac.context = cac.canvas.getContext('2d');
-  }
-
-  destroy(cac: { canvas: ReturnType<typeof createCanvas> | null; context: unknown }) {
-    if (cac.canvas) {
-      cac.canvas.width = 0;
-      cac.canvas.height = 0;
-    }
-    cac.canvas = null;
-    cac.context = null;
-  }
-}
-
-/**
- * Renders every page of a PDF to a PNG buffer using pdfjs-dist + node-canvas.
- *
- * Each PNG is rendered at RENDER_SCALE (144 dpi) for acceptable quality while
- * keeping the returned RenderedPage.width/height at the original PDF-point
- * dimensions so callers can place the image at 1:1 in a new pdf-lib document.
+ * pdfjs-dist already depends on @napi-rs/canvas for its internal NodeCanvasFactory,
+ * so using the same package here ensures all canvases are the same type.
+ * No custom CanvasFactory injection needed.
  */
 export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs') as {
-    getDocument: (params: { data: Uint8Array; CanvasFactory: typeof NodeCanvasFactory }) => {
+    getDocument: (params: { data: Uint8Array }) => {
       promise: Promise<PdfjsDocument>;
     };
   };
 
   let pdfDoc: PdfjsDocument;
   try {
-    // Pass CanvasFactory as a class (constructor), not an instance.
-    // pdfjs uses it to create all internal canvases (transparency groups, etc.)
-    // so they are the same type as our main render canvas — no drawImage conflicts.
+    // CanvasFactory를 따로 주입하지 않는다.
+    // pdfjs는 내부 서브 캔버스 생성에 기본 NodeCanvasFactory(@napi-rs/canvas)를 사용하고,
+    // 우리 메인 캔버스도 같은 패키지를 쓰므로 drawImage 타입 충돌이 없다.
     pdfDoc = await pdfjs.getDocument({
       data: new Uint8Array(pdfBuffer),
-      CanvasFactory: NodeCanvasFactory,
     }).promise;
   } catch (err) {
     throw new InternalServerErrorException(
@@ -96,7 +61,9 @@ export async function renderPdfPages(pdfBuffer: Buffer): Promise<RenderedPage[]>
     }).promise;
 
     pages.push({
-      pngBuffer: canvas.toBuffer('image/png'),
+      // @napi-rs/canvas의 toBuffer()는 Node.js Buffer와 호환되나 타입이 다르므로 캐스팅
+      pngBuffer: canvas.toBuffer('image/png') as unknown as Buffer,
+      // 원본 PDF 포인트 단위 크기 (1 point = 1/72 inch) — overlay 시 1:1 매핑용
       width: viewport.width,
       height: viewport.height,
     });

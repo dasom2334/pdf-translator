@@ -9,13 +9,6 @@ const MAX_CHUNK_SIZE = 500;
 const OVERLAP_SENTENCES = 1;
 const DAILY_LIMIT_STATUS = 429;
 
-/**
- * Optional email for MyMemory API.
- * Setting MYMEMORY_EMAIL env var increases the daily limit from 1,000 to 10,000 words
- * and helps avoid 403 IP-based rate limiting.
- * See: https://mymemory.translated.net/doc/spec.php
- */
-const MYMEMORY_EMAIL = process.env.MYMEMORY_EMAIL ?? null;
 
 const SUPPORTED_LANGUAGES = [
   'af', 'sq', 'am', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs',
@@ -42,10 +35,11 @@ export class MyMemoryTranslationService implements ITranslationService {
     sourceLang: string,
     targetLang: string,
   ): Promise<string> {
+    const email = process.env.MYMEMORY_EMAIL;
     const params = new URLSearchParams({
       q: chunk,
       langpair: `${sourceLang}|${targetLang}`,
-      ...(MYMEMORY_EMAIL ? { de: MYMEMORY_EMAIL } : {}),
+      ...(email ? { de: email } : {}),
     });
     const url = `${MYMEMORY_API_URL}?${params.toString()}`;
 

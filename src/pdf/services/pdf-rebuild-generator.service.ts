@@ -18,7 +18,7 @@ const ELLIPSIS = '...';
  */
 const DEFAULT_FONT_PATH = path.resolve(
   __dirname,
-  '../../../../assets/fonts/NotoSansCJKkr-Regular.otf',
+  '../../../assets/fonts/NotoSansCJKkr-Regular.otf',
 );
 
 @Injectable()

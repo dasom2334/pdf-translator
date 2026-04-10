@@ -21,7 +21,7 @@ const DESCENDER_PAD_RATIO = 0.2;
  */
 const DEFAULT_FONT_PATH = path.resolve(
   __dirname,
-  '../../../../assets/fonts/NotoSansCJKkr-Regular.otf',
+  '../../../assets/fonts/NotoSansCJKkr-Regular.otf',
 );
 
 /**
