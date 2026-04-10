@@ -201,8 +201,14 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       if (!rendered) {
         // No translated blocks on this page — copy directly from the original PDF
         // without rasterization, preserving vector quality and saving memory.
-        const [copiedPage] = await pdfDoc.copyPages(srcDoc, [pageNum - 1]);
-        pdfDoc.addPage(copiedPage);
+        try {
+          const [copiedPage] = await pdfDoc.copyPages(srcDoc, [pageNum - 1]);
+          pdfDoc.addPage(copiedPage);
+        } catch (err) {
+          throw new InternalServerErrorException(
+            `페이지 ${pageNum} 복사 실패: ${(err as Error).message}`,
+          );
+        }
         continue;
       }
 

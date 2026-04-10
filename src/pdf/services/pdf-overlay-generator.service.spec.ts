@@ -117,6 +117,11 @@ describe('PdfOverlayGeneratorService', () => {
 
     await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
     expect(fs.existsSync(outputPath)).toBe(true);
+
+    // 범위 밖 블록이 있어도 출력 PDF는 원본과 동일한 페이지 수를 가져야 한다
+    const writtenBytes = fs.readFileSync(outputPath);
+    const outDoc = await PDFDocument.load(writtenBytes);
+    expect(outDoc.getPageCount()).toBe(1);
   });
 
   // -------------------------------------------------------------------------
