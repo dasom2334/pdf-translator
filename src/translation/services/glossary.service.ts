@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { extname } from 'path';
 
@@ -14,9 +15,6 @@ export interface GlossarySubstitution {
   text: string;
   placeholders: Map<string, string>;
 }
-
-const PLACEHOLDER_PREFIX = '§TERM';
-const PLACEHOLDER_SUFFIX = '§';
 
 @Injectable()
 export class GlossaryService {
@@ -78,23 +76,19 @@ export class GlossaryService {
    */
   substitute(text: string, terms: GlossaryEntry): GlossarySubstitution {
     const placeholders = new Map<string, string>();
-
-    // Sort terms by length descending to match longer terms first
     const sortedTerms = Object.keys(terms).sort((a, b) => b.length - a.length);
-
     let result = text;
-    let index = 0;
 
     for (const term of sortedTerms) {
       const preserved = terms[term];
-      const placeholder = `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
-      // Use a global, case-sensitive regex to replace all occurrences
       const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'g');
       if (regex.test(result)) {
+        // UUID 기반 플레이스홀더: 원본 텍스트와 충돌 불가
+        // \x00(NULL byte)는 자연어 텍스트에 존재하지 않아 충돌 위험 없음
+        const placeholder = `\x00GTERM_${randomUUID()}\x00`;
         result = result.replace(regex, placeholder);
         placeholders.set(placeholder, preserved);
-        index++;
       }
     }
 
