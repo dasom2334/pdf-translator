@@ -11,6 +11,7 @@ import { TranslationServiceFactory } from '../../translation/factories/translati
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 import { OutputMode } from '../../common/enums/output-mode.enum';
 import * as fsPromises from 'fs/promises';
+import * as fsSync from 'fs';
 
 // cli-config.loader 모킹
 vi.mock('../config/cli-config.loader', () => ({
@@ -20,6 +21,16 @@ vi.mock('../config/cli-config.loader', () => ({
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue(Buffer.from('pdf-data')),
 }));
+
+// 동기 fs 모킹 (parseInput/parseFont/parseGlossary 파일 존재 검증용)
+// constants는 importOriginal로 실제 node:fs 값을 사용하여 하드코딩 불일치를 방지한다
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    accessSync: vi.fn(), // 기본값: 예외 없음 = 파일 존재
+    constants: actual.constants,
+  };
+});
 
 const mockBlock: TextBlock = {
   text: 'Hello',
@@ -382,16 +393,72 @@ describe('TranslateCommand', () => {
 
   // ── 옵션 파서 ──────────────────────────────────────────────────────────────
   describe('option parsers', () => {
-    it('parseInput: 값 그대로 반환', () => {
+    it('parseInput: 파일이 존재하면 값 그대로 반환', () => {
       expect(command.parseInput('test.pdf')).toBe('test.pdf');
     });
 
-    it('parseTargetLang: 값 그대로 반환', () => {
-      expect(command.parseTargetLang('ko')).toBe('ko');
+    it('parseInput: 파일이 없으면 process.exit(1)', () => {
+      vi.mocked(fsSync.accessSync).mockImplementationOnce(() => { throw new Error('ENOENT'); });
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseInput('/nonexistent.pdf')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
     });
 
-    it('parseSourceLang: 값 그대로 반환', () => {
+    it('parseTargetLang: 유효한 언어코드 반환', () => {
+      expect(command.parseTargetLang('ko')).toBe('ko');
+      expect(command.parseTargetLang('zh-TW')).toBe('zh-TW');
+      expect(command.parseTargetLang('pt-BR')).toBe('pt-BR');
+    });
+
+    it('parseTargetLang: 유효하지 않은 언어코드 → process.exit(1)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseTargetLang('INVALID')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+
+    it('parseTargetLang: 빈 문자열 → process.exit(1)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseTargetLang('')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+
+    it('parseSourceLang: 유효한 언어코드 반환', () => {
       expect(command.parseSourceLang('en')).toBe('en');
+    });
+
+    it('parseSourceLang: auto 허용', () => {
+      expect(command.parseSourceLang('auto')).toBe('auto');
+    });
+
+    it('parseSourceLang: 유효하지 않은 언어코드 → process.exit(1)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseSourceLang('INVALID')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
     });
 
     it('parseOutput: 값 그대로 반환', () => {
@@ -436,16 +503,44 @@ describe('TranslateCommand', () => {
       }
     });
 
-    it('parseFont: 값 그대로 반환', () => {
+    it('parseFont: 파일이 존재하면 값 그대로 반환', () => {
       expect(command.parseFont('/path/to/font.ttf')).toBe('/path/to/font.ttf');
+    });
+
+    it('parseFont: 파일이 없으면 process.exit(1)', () => {
+      vi.mocked(fsSync.accessSync).mockImplementationOnce(() => { throw new Error('ENOENT'); });
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseFont('/nonexistent/font.ttf')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
     });
 
     it('parsePages: 값 그대로 반환', () => {
       expect(command.parsePages('1-5,10')).toBe('1-5,10');
     });
 
-    it('parseGlossary: 값 그대로 반환', () => {
+    it('parseGlossary: 파일이 존재하면 값 그대로 반환', () => {
       expect(command.parseGlossary('/glossary.yml')).toBe('/glossary.yml');
+    });
+
+    it('parseGlossary: 파일이 없으면 process.exit(1)', () => {
+      vi.mocked(fsSync.accessSync).mockImplementationOnce(() => { throw new Error('ENOENT'); });
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseGlossary('/nonexistent/glossary.yml')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
     });
 
     it('parseBilingual: true 반환', () => {
