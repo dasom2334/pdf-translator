@@ -35,7 +35,7 @@ export async function renderPdfPages(
     };
   };
 
-  let pdfDoc: PdfjsDocument;
+  let pdfDoc: PdfjsDocument | undefined;
   try {
     // CanvasFactory를 따로 주입하지 않는다.
     // pdfjs는 내부 서브 캔버스 생성에 기본 NodeCanvasFactory(@napi-rs/canvas)를 사용하고,
@@ -51,37 +51,40 @@ export async function renderPdfPages(
 
   const pages = new Map<number, RenderedPage>();
 
-  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-    // pageNumbers가 지정된 경우 해당 페이지만 렌더링 (성능 최적화)
-    if (pageNumbers && !pageNumbers.has(pageNum)) continue;
+  try {
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      // pageNumbers가 지정된 경우 해당 페이지만 렌더링 (성능 최적화)
+      if (pageNumbers && !pageNumbers.has(pageNum)) continue;
 
-    const page = await pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 1.0 });
-    const renderViewport = page.getViewport({ scale: RENDER_SCALE });
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.0 });
+      const renderViewport = page.getViewport({ scale: RENDER_SCALE });
 
-    const canvas = createCanvas(
-      Math.ceil(renderViewport.width),
-      Math.ceil(renderViewport.height),
-    );
-    const ctx = canvas.getContext('2d');
+      const canvas = createCanvas(
+        Math.ceil(renderViewport.width),
+        Math.ceil(renderViewport.height),
+      );
+      const ctx = canvas.getContext('2d');
 
-    await page.render({
-      canvasContext: ctx as unknown as CanvasRenderingContext2D,
-      viewport: renderViewport,
-    }).promise;
+      await page.render({
+        canvasContext: ctx as unknown as CanvasRenderingContext2D,
+        viewport: renderViewport,
+      }).promise;
 
-    pages.set(pageNum, {
-      // @napi-rs/canvas의 toBuffer()는 Node.js Buffer와 호환되나 타입이 다르므로 캐스팅
-      pngBuffer: canvas.toBuffer('image/png') as unknown as Buffer,
-      // 원본 PDF 포인트 단위 크기 (1 point = 1/72 inch) — overlay 시 1:1 매핑용
-      width: viewport.width,
-      height: viewport.height,
-    });
+      pages.set(pageNum, {
+        // @napi-rs/canvas의 toBuffer()는 Node.js Buffer와 호환되나 타입이 다르므로 캐스팅
+        pngBuffer: canvas.toBuffer('image/png') as unknown as Buffer,
+        // 원본 PDF 포인트 단위 크기 (1 point = 1/72 inch) — overlay 시 1:1 매핑용
+        width: viewport.width,
+        height: viewport.height,
+      });
 
-    page.cleanup();
+      page.cleanup();
+    }
+  } finally {
+    await pdfDoc?.destroy();
   }
 
-  await pdfDoc.destroy();
   return pages;
 }
 

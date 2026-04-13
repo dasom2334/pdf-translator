@@ -6,6 +6,12 @@ import {
 import { IPdfExtractor, TextBlock } from '../interfaces';
 import { getPdfjs } from '../utils/pdfjs-loader';
 
+type PdfjsDoc = {
+  numPages: number;
+  getPage(n: number): Promise<unknown>;
+  destroy(): Promise<void>;
+};
+
 // PDF magic bytes: %PDF
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
 
@@ -327,106 +333,78 @@ export class PdfExtractorService implements IPdfExtractor {
     return filtered.map((blocks) => this.mergeAdjacentBlocks(blocks));
   }
 
-  async extractBlocks(fileBuffer: Buffer): Promise<TextBlock[]> {
+  /**
+   * PDF 버퍼를 파싱하여 pdfjs 문서 인스턴스를 반환한다.
+   * 오류 시 InternalServerErrorException으로 래핑한다.
+   */
+  private async loadPdf(fileBuffer: Buffer): Promise<PdfjsDoc> {
     this.validateBuffer(fileBuffer);
-
-    let pdf: {
-      numPages: number;
-      getPage: (n: number) => Promise<unknown>;
-    };
-
     try {
       const pdfjsLib = getPdfjs();
       const data = new Uint8Array(fileBuffer);
-      const loadingTask = pdfjsLib.getDocument({ data });
-      pdf = (await loadingTask.promise) as typeof pdf;
+      return (await pdfjsLib.getDocument({ data }).promise) as PdfjsDoc;
     } catch (err) {
       throw new InternalServerErrorException(
         `Failed to parse PDF: ${(err as Error).message}`,
       );
     }
+  }
 
+  /**
+   * 지정된 페이지 번호 목록에서 TextBlock을 추출한다.
+   * try/finally로 pdf.destroy()를 보장하여 메모리 누수를 방지한다.
+   */
+  private async extractRawPages(
+    pdf: PdfjsDoc,
+    pageNums: number[],
+  ): Promise<{ blocksByPage: TextBlock[][]; pageHeights: number[] }> {
     const blocksByPage: TextBlock[][] = [];
     const pageHeights: number[] = [];
-
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      try {
-        const page = await pdf.getPage(pageNum);
-        const { blocks, pageHeight } = await this.extractBlocksFromPage(
-          page,
-          pageNum,
-        );
-        blocksByPage.push(blocks);
-        pageHeights.push(pageHeight);
-      } catch (err) {
-        if (
-          err instanceof BadRequestException ||
-          err instanceof InternalServerErrorException
-        ) {
-          throw err;
+    try {
+      for (const pageNum of pageNums) {
+        try {
+          const page = await pdf.getPage(pageNum);
+          const { blocks, pageHeight } = await this.extractBlocksFromPage(
+            page,
+            pageNum,
+          );
+          blocksByPage.push(blocks);
+          pageHeights.push(pageHeight);
+        } catch (err) {
+          if (
+            err instanceof BadRequestException ||
+            err instanceof InternalServerErrorException
+          ) {
+            throw err;
+          }
+          throw new InternalServerErrorException(
+            `Failed to extract text from page ${pageNum}: ${(err as Error).message}`,
+          );
         }
-        throw new InternalServerErrorException(
-          `Failed to extract text from page ${pageNum}: ${(err as Error).message}`,
-        );
       }
+    } finally {
+      await pdf.destroy();
     }
+    return { blocksByPage, pageHeights };
+  }
 
-    const processed = this.postProcessBlocks(blocksByPage, pageHeights);
-    return processed.flat();
+  async extractBlocks(fileBuffer: Buffer): Promise<TextBlock[]> {
+    const pdf = await this.loadPdf(fileBuffer);
+    const pageNums = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+    const { blocksByPage, pageHeights } = await this.extractRawPages(pdf, pageNums);
+    return this.postProcessBlocks(blocksByPage, pageHeights).flat();
   }
 
   async extractBlocksByPages(
     fileBuffer: Buffer,
     pageRange?: string,
   ): Promise<TextBlock[][]> {
-    this.validateBuffer(fileBuffer);
-
-    let pdf: {
-      numPages: number;
-      getPage: (n: number) => Promise<unknown>;
-    };
-
-    try {
-      const pdfjsLib = getPdfjs();
-      const data = new Uint8Array(fileBuffer);
-      const loadingTask = pdfjsLib.getDocument({ data });
-      pdf = (await loadingTask.promise) as typeof pdf;
-    } catch (err) {
-      throw new InternalServerErrorException(
-        `Failed to parse PDF: ${(err as Error).message}`,
-      );
-    }
-
-    const pageNumbers =
-      pageRange && pageRange.trim()
+    const pdf = await this.loadPdf(fileBuffer);
+    const pageNums =
+      pageRange?.trim()
         ? this.parsePageRange(pageRange, pdf.numPages)
         : Array.from({ length: pdf.numPages }, (_, i) => i + 1);
-
-    const blocksByPage: TextBlock[][] = [];
-    const pageHeights: number[] = [];
-
-    for (const pageNum of pageNumbers) {
-      try {
-        const page = await pdf.getPage(pageNum);
-        const { blocks, pageHeight } = await this.extractBlocksFromPage(
-          page,
-          pageNum,
-        );
-        blocksByPage.push(blocks);
-        pageHeights.push(pageHeight);
-      } catch (err) {
-        if (
-          err instanceof BadRequestException ||
-          err instanceof InternalServerErrorException
-        ) {
-          throw err;
-        }
-        throw new InternalServerErrorException(
-          `Failed to extract text from page ${pageNum}: ${(err as Error).message}`,
-        );
-      }
-    }
-
+    const { blocksByPage, pageHeights } = await this.extractRawPages(pdf, pageNums);
     return this.postProcessBlocks(blocksByPage, pageHeights);
   }
 }

@@ -53,7 +53,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: [] }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -95,7 +95,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -131,7 +131,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -158,7 +158,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -187,7 +187,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -228,7 +228,7 @@ describe('PdfExtractorService', () => {
         });
 
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -278,7 +278,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -328,7 +328,7 @@ describe('PdfExtractorService', () => {
         });
 
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -377,7 +377,7 @@ describe('PdfExtractorService', () => {
         });
 
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -408,7 +408,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -432,7 +432,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -471,7 +471,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -507,7 +507,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
@@ -540,11 +540,66 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const blocks = await service.extractBlocks(validPdfHeader);
       expect(blocks).toHaveLength(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // pdfjs 인스턴스 destroy() 호출 보장 (메모리 릭 방지)
+  // -------------------------------------------------------------------------
+  describe('pdfjs destroy() 호출 보장', () => {
+    it('extractBlocks: 정상 추출 후 destroy()가 1회 호출되어야 한다', async () => {
+      const mockDestroy = vi.fn().mockResolvedValue(undefined);
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: mockDestroy }),
+      });
+
+      await service.extractBlocks(validPdfHeader);
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('extractBlocks: 페이지 추출 실패 시에도 destroy()가 1회 호출되어야 한다', async () => {
+      const mockDestroy = vi.fn().mockResolvedValue(undefined);
+      const mockGetPage = vi.fn().mockRejectedValue(new Error('page error'));
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: mockDestroy }),
+      });
+
+      await expect(service.extractBlocks(validPdfHeader)).rejects.toThrow();
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('extractBlocksByPages: 정상 추출 후 destroy()가 1회 호출되어야 한다', async () => {
+      const mockDestroy = vi.fn().mockResolvedValue(undefined);
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage, destroy: mockDestroy }),
+      });
+
+      await service.extractBlocksByPages(validPdfHeader);
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('extractBlocksByPages: 페이지 추출 실패 시에도 destroy()가 1회 호출되어야 한다', async () => {
+      const mockDestroy = vi.fn().mockResolvedValue(undefined);
+      const mockGetPage = vi.fn().mockRejectedValue(new Error('page error'));
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 1, getPage: mockGetPage, destroy: mockDestroy }),
+      });
+
+      await expect(service.extractBlocksByPages(validPdfHeader)).rejects.toThrow();
+      expect(mockDestroy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -578,10 +633,38 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const result = await service.extractBlocksByPages(validPdfHeader);
+      expect(result).toHaveLength(3);
+      expect(mockGetPage).toHaveBeenCalledTimes(3);
+    });
+
+    it('should return all pages when pageRange is empty string', async () => {
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
+      });
+
+      const result = await service.extractBlocksByPages(validPdfHeader, '');
+      expect(result).toHaveLength(3);
+      expect(mockGetPage).toHaveBeenCalledTimes(3);
+    });
+
+    it('should return all pages when pageRange is whitespace-only', async () => {
+      const mockGetPage = vi.fn().mockResolvedValue({
+        getViewport: mockGetViewport,
+        getTextContent: vi.fn().mockResolvedValue({ items: [] }),
+      });
+      mockGetDocument.mockReturnValue({
+        promise: Promise.resolve({ numPages: 3, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
+      });
+
+      const result = await service.extractBlocksByPages(validPdfHeader, '   ');
       expect(result).toHaveLength(3);
       expect(mockGetPage).toHaveBeenCalledTimes(3);
     });
@@ -603,7 +686,7 @@ describe('PdfExtractorService', () => {
         getTextContent: vi.fn().mockResolvedValue({ items: mockItems }),
       });
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 5, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 5, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const result = await service.extractBlocksByPages(validPdfHeader, '1-2,4');
@@ -657,7 +740,7 @@ describe('PdfExtractorService', () => {
         });
 
       mockGetDocument.mockReturnValue({
-        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage }),
+        promise: Promise.resolve({ numPages: 2, getPage: mockGetPage, destroy: vi.fn().mockResolvedValue(undefined) }),
       });
 
       const result = await service.extractBlocksByPages(validPdfHeader);
