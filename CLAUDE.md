@@ -214,3 +214,16 @@ assets/
 | `/phase1-3` | cli-builder(C-1+C-2) | phase1-2 머지 |
 | `/phase2-1` | 병렬: pdf-builder(E-2+G-3+G-5) + translation-builder(T-3+T-4) | phase1-3 머지 |
 | `/phase2-2` | cli-builder(C-3+C-4+C-5) | phase2-1 머지 |
+| `/phase3-1` | pdf-builder: PdfTranslationService 생성 + 데드코드 제거 | phase2-2 머지 |
+| `/phase3-2` | cli-builder: CLI 리팩터링 (서비스 위임) | phase3-1 머지 |
+| `/phase7-1` | pdf-builder: 블록 병합 유틸리티 | phase3-2 머지 |
+| `/phase7-2` | pdf-builder: 병합 통합 + 부분 실패 복구 | phase7-1 머지 |
+| `/phase4-1` | translation-builder: 캐시 서비스 | phase7-2 머지 |
+| `/phase4-2` | 병렬: translation-builder(캐시 통합) + cli-builder(CLI 캐시 옵션) | phase4-1 머지 |
+| `/phase5-1` | pdf-builder: OCR 어댑터 | phase4-2 머지 |
+| `/phase5-2` | pdf-builder: OCR-추출 통합 | phase5-1 머지 |
+| `/phase5-3` | cli-builder: OCR CLI 옵션 | phase5-2 머지 |
+| `/phase6-1` | translation-builder: Vision 번역 어댑터 | phase5-3 머지 |
+| `/phase6-2` | 병렬: pdf-builder(Vision 통합) + cli-builder(Vision CLI) | phase6-1 머지 |
+| `/phase8-1` | 병렬: pdf-builder(HTTP 컨트롤러) + cli-builder(main.ts) | phase6-2 머지 |
+| `/phase8-2` | infra-builder: API 문서 + 인프라 | phase8-1 머지 |
