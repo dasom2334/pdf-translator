@@ -97,7 +97,8 @@ pnpm run cli -- translate \
   [-p mymemory|gemini] \
   [--mode overlay|rebuild] \
   [--font <path-to-ttf>] \
-  [--pages 1-5,10]
+  [--pages 1-5,10] \
+  [--local-model <path-to-gguf>]
 ```
 
 ### API Endpoints (Phase 3+ 예정)

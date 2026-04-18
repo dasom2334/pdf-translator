@@ -30,6 +30,7 @@ interface TranslateCommandOptions {
   pages?: string;
   glossary?: string;
   bilingual?: boolean;
+  localModel?: string;
 }
 
 const MAX_RETRY = 3;
@@ -103,7 +104,7 @@ export class TranslateCommand extends CommandRunner {
 
   @Option({
     flags: '-p, --provider <provider>',
-    description: 'Translation provider (mymemory|gemini)',
+    description: 'Translation provider (mymemory|gemini|local)',
     defaultValue: 'mymemory',
   })
   parseProvider(val: string): string {
@@ -184,6 +185,20 @@ export class TranslateCommand extends CommandRunner {
     return true;
   }
 
+  @Option({
+    flags: '--local-model <path>',
+    description: 'GGUF model file path for local provider',
+  })
+  parseLocalModel(val: string): string {
+    try {
+      fsSync.accessSync(val, fsSync.constants.R_OK);
+    } catch {
+      console.error(`Error: Model file not found or not readable: "${val}"`);
+      process.exit(1);
+    }
+    return val;
+  }
+
   private async translatePageWithRetry(
     service: ITranslationService,
     texts: string[],
@@ -237,6 +252,9 @@ export class TranslateCommand extends CommandRunner {
     const targetLang = opts.targetLang ?? fileConfig.targetLang ?? '';
     const sourceLang = opts.sourceLang ?? fileConfig.sourceLang ?? 'auto';
     const provider = (opts.provider ?? fileConfig.provider ?? 'mymemory') as TranslationProvider;
+    if (provider === TranslationProvider.LOCAL && opts.localModel) {
+      process.env.LOCAL_LLM_MODEL_PATH = opts.localModel;
+    }
     const mode = (opts.mode ?? fileConfig.mode ?? 'overlay') as OutputMode;
     const fontPath = opts.font ?? fileConfig.fontPath;
     const glossaryPath = opts.glossary ?? fileConfig.glossaryPath;
