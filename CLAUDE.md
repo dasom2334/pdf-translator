@@ -111,6 +111,7 @@ UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=10485760
 GEMINI_API_KEY=
 MYMEMORY_EMAIL=          # 선택사항. 설정 시 MyMemory 일일 한도 1,000→10,000 단어로 증가 및 403 우회
+LOCAL_LLM_MODEL_PATH=   # 선택사항. 기본값: assets/models/translateGemma.gguf
 # PORT=3000              # 향후 HTTP API 용
 ```
 
