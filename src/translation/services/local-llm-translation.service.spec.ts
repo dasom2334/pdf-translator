@@ -6,13 +6,10 @@ import { GlossaryService } from './glossary.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
 // vi.hoisted를 사용해 vi.mock 팩토리보다 먼저 초기화되도록 한다.
-const { mockPrompt, mockDownload, mockCreateModelDownloader } = vi.hoisted(() => {
+const { mockPrompt, mockExecFile } = vi.hoisted(() => {
   const mockPrompt = vi.fn().mockResolvedValue('translated text');
-  const mockDownload = vi.fn().mockResolvedValue('/fake/model.gguf');
-  const mockCreateModelDownloader = vi.fn().mockResolvedValue({
-    download: mockDownload,
-  });
-  return { mockPrompt, mockDownload, mockCreateModelDownloader };
+  const mockExecFile = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+  return { mockPrompt, mockExecFile };
 });
 
 // Mock node-llama-cpp — native module, cannot use real binaries in tests.
@@ -33,9 +30,13 @@ vi.mock('node-llama-cpp', () => {
   return {
     getLlama: mockGetLlama,
     LlamaChatSession: MockLlamaChatSession,
-    createModelDownloader: mockCreateModelDownloader,
   };
 });
+
+// Mock child_process.execFile — createModelDownloader 대신 npx node-llama-cpp pull 사용
+vi.mock('child_process', () => ({
+  execFile: mockExecFile,
+}));
 
 // Mock fs/promises for model file existence checks
 vi.mock('fs/promises');
@@ -56,9 +57,13 @@ describe('LocalLlmTranslationService', () => {
     vi.mocked(fsPromises.access).mockResolvedValue(undefined);
     vi.mocked(fsPromises.mkdir).mockResolvedValue(undefined);
 
-    // Default: downloader succeeds
-    mockCreateModelDownloader.mockResolvedValue({ download: mockDownload });
-    mockDownload.mockResolvedValue('/fake/model.gguf');
+    // Default: execFile (npx node-llama-cpp pull) succeeds
+    mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      if (typeof callback === 'function') {
+        callback(null, '', '');
+      }
+      return {} as ReturnType<typeof import('child_process').execFile>;
+    });
 
     // Default getLlama setup
     vi.mocked(getLlama).mockResolvedValue({
@@ -108,7 +113,13 @@ describe('LocalLlmTranslationService', () => {
 
     it('모델 파일 없고 자동 다운로드도 실패 → TranslationException 발생 (메시지에 Model file not found and auto-download failed 포함)', async () => {
       vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT'));
-      mockCreateModelDownloader.mockRejectedValue(new Error('ENOTFOUND'));
+      // promisify(execFile)가 reject하도록 callback 기반 mock을 에러로 설정
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        if (typeof callback === 'function') {
+          callback(new Error('ENOTFOUND'), '', '');
+        }
+        return {} as ReturnType<typeof import('child_process').execFile>;
+      });
 
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(TranslationException);
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(
@@ -117,9 +128,14 @@ describe('LocalLlmTranslationService', () => {
     });
 
     it('모델 파일 없지만 자동 다운로드 성공 → 번역 진행됨', async () => {
-      // 첫 번째 access는 실패(파일 없음), 다운로드 성공 후 getLlama 호출
+      // 첫 번째 access는 실패(파일 없음), npx 다운로드 성공 후 getLlama 호출
       vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT'));
-      mockDownload.mockResolvedValue('/fake/model.gguf');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        if (typeof callback === 'function') {
+          callback(null, '', '');
+        }
+        return {} as ReturnType<typeof import('child_process').execFile>;
+      });
 
       mockPrompt.mockResolvedValueOnce('안녕하세요');
 

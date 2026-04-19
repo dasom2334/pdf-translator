@@ -1,11 +1,15 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ITranslationService } from '../interfaces/translation-service.interface';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 import { GlossaryService } from './glossary.service';
 import { postProcessTranslation, splitIntoChunksWithOverlap } from '../utils/translation.utils';
 import { mapWithConcurrency } from '../../common/utils/concurrency';
+
+const execFileAsync = promisify(execFile);
 
 const MAX_CHUNK_SIZE = 2000;
 const OVERLAP_SENTENCES = 1;
@@ -18,9 +22,13 @@ export class LocalLlmTranslationService implements ITranslationService {
   private readonly modelPath: string;
 
   constructor(private readonly glossaryService: GlossaryService) {
-    this.modelPath =
-      process.env.LOCAL_LLM_MODEL_PATH ??
-      path.resolve(process.cwd(), DEFAULT_MODEL_PATH);
+    const modelPath = process.env.LOCAL_LLM_MODEL_PATH;
+    if (!modelPath) {
+      this.logger.warn(
+        'LOCAL_LLM_MODEL_PATH not set. Using default path. Use --local-model to specify the model path explicitly.',
+      );
+    }
+    this.modelPath = modelPath ?? path.resolve(process.cwd(), DEFAULT_MODEL_PATH);
   }
 
   private async getSession(): Promise<{ prompt: (text: string) => Promise<string> }> {
@@ -50,31 +58,21 @@ export class LocalLlmTranslationService implements ITranslationService {
       // 파일 없음 → 자동 다운로드
     }
 
-    const MODEL_URL =
+    const MODEL_URI =
       'hf:mradermacher/translategemma-12b-it-GGUF/translategemma-12b-it.Q4_K_M.gguf';
     const modelDir = path.dirname(this.modelPath);
     const modelFilename = path.basename(this.modelPath);
 
     this.logger.warn(`Model file not found at: ${this.modelPath}`);
-    this.logger.log(`Downloading model from ${MODEL_URL} ...`);
-    this.logger.log('This may take a while (file size ~7.3GB)');
+    this.logger.log(`Downloading model (~7.3GB). This may take a while...`);
 
     try {
       await fs.mkdir(modelDir, { recursive: true });
-
-      const { createModelDownloader } = await import('node-llama-cpp');
-      const downloader = await createModelDownloader({
-        modelUri: MODEL_URL,
-        dirPath: modelDir,
-        fileName: modelFilename,
-        onProgress: ({ downloadedSize, totalSize }: { downloadedSize: number; totalSize: number }) => {
-          const pct = totalSize ? ((downloadedSize / totalSize) * 100).toFixed(1) : '?';
-          const mb = (downloadedSize / 1024 / 1024).toFixed(0);
-          const totalMb = totalSize ? (totalSize / 1024 / 1024).toFixed(0) : '?';
-          this.logger.log(`Downloading... ${pct}% (${mb}MB / ${totalMb}MB)`);
-        },
-      });
-      await downloader.download();
+      await execFileAsync(
+        'npx',
+        ['node-llama-cpp@3.18.1', 'pull', '--dir', modelDir, '--filename', modelFilename, MODEL_URI],
+        { timeout: 60 * 60 * 1000 }, // 1시간
+      );
       this.logger.log('Model downloaded successfully');
     } catch (err) {
       const message = (err as Error)?.message ?? String(err);
