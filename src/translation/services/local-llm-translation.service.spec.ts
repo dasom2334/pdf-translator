@@ -106,11 +106,11 @@ describe('LocalLlmTranslationService', () => {
       await expect(service.translate('   ', 'en', 'ko')).rejects.toThrow(BadRequestException);
     });
 
-    it('모델 파일 없고 자동 다운로드도 실패 → BadRequestException 발생 (메시지에 Model file not found and auto-download failed 포함)', async () => {
+    it('모델 파일 없고 자동 다운로드도 실패 → TranslationException 발생 (메시지에 Model file not found and auto-download failed 포함)', async () => {
       vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT'));
       mockCreateModelDownloader.mockRejectedValue(new Error('ENOTFOUND'));
 
-      await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(BadRequestException);
+      await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(TranslationException);
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(
         'Model file not found and auto-download failed',
       );

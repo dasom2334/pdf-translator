@@ -86,7 +86,7 @@ export class LocalLlmTranslationService implements ITranslationService {
       } else if (message.includes('403') || message.includes('401')) {
         this.logger.error('Access denied. The model may require HuggingFace authentication.');
       }
-      throw new BadRequestException(
+      throw new TranslationException(
         `Model file not found and auto-download failed: ${message}`,
       );
     }
@@ -111,7 +111,7 @@ export class LocalLlmTranslationService implements ITranslationService {
       const result = await session.prompt(prompt);
       return result.trim();
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (error instanceof BadRequestException || error instanceof TranslationException) {
         throw error;
       }
       throw new TranslationException(
