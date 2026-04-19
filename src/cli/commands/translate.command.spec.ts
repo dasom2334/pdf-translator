@@ -543,8 +543,41 @@ describe('TranslateCommand', () => {
       }
     });
 
+    it('parseLocalModel: 파일이 존재하면 값 그대로 반환', () => {
+      expect(command.parseLocalModel('/path/to/model.gguf')).toBe('/path/to/model.gguf');
+    });
+
+    it('parseLocalModel: 파일이 없으면 process.exit(1)', () => {
+      vi.mocked(fsSync.accessSync).mockImplementationOnce(() => { throw new Error('ENOENT'); });
+
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+      try {
+        expect(() => command.parseLocalModel('/nonexistent/model.gguf')).toThrow('process.exit called');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      } finally {
+        exitSpy.mockRestore();
+      }
+    });
+
     it('parseBilingual: true 반환', () => {
       expect(command.parseBilingual('')).toBe(true);
     });
+  });
+
+  // ── LOCAL provider env 주입 ──────────────────────────────────────────────────
+  it('provider=local이고 localModel이 있을 때 LOCAL_LLM_MODEL_PATH env가 설정된다', async () => {
+    delete process.env.LOCAL_LLM_MODEL_PATH;
+
+    await command.run([], {
+      input: '/some/file.pdf',
+      targetLang: 'ko',
+      provider: TranslationProvider.LOCAL,
+      mode: OutputMode.OVERLAY,
+      localModel: '/path/to/model.gguf',
+    } as never);
+
+    expect(process.env.LOCAL_LLM_MODEL_PATH).toBe('/path/to/model.gguf');
   });
 });
