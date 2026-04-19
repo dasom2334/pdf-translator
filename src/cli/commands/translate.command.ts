@@ -255,6 +255,13 @@ export class TranslateCommand extends CommandRunner {
     if (provider === TranslationProvider.LOCAL && opts.localModel) {
       process.env.LOCAL_LLM_MODEL_PATH = opts.localModel;
     }
+
+    // provider=local이고 localModel 미지정 시 기본 경로 안내
+    if (provider === TranslationProvider.LOCAL && !opts.localModel) {
+      console.log(`[info] Using default model path: assets/models/translateGemma.gguf`);
+      console.log(`[info] If model is not found, it will be downloaded automatically (~7.3GB).`);
+    }
+
     const mode = (opts.mode ?? fileConfig.mode ?? 'overlay') as OutputMode;
     const fontPath = opts.font ?? fileConfig.fontPath;
     const glossaryPath = opts.glossary ?? fileConfig.glossaryPath;

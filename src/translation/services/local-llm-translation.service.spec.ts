@@ -5,10 +5,18 @@ import { LocalLlmTranslationService } from './local-llm-translation.service';
 import { GlossaryService } from './glossary.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
+// vi.hoisted를 사용해 vi.mock 팩토리보다 먼저 초기화되도록 한다.
+const { mockPrompt, mockDownload, mockCreateModelDownloader } = vi.hoisted(() => {
+  const mockPrompt = vi.fn().mockResolvedValue('translated text');
+  const mockDownload = vi.fn().mockResolvedValue('/fake/model.gguf');
+  const mockCreateModelDownloader = vi.fn().mockResolvedValue({
+    download: mockDownload,
+  });
+  return { mockPrompt, mockDownload, mockCreateModelDownloader };
+});
+
 // Mock node-llama-cpp — native module, cannot use real binaries in tests.
 // Dynamic import 패턴을 사용하므로 vi.mock으로 모듈 전체를 교체한다.
-const mockPrompt = vi.fn().mockResolvedValue('translated text');
-
 vi.mock('node-llama-cpp', () => {
   const MockLlamaChatSession = vi.fn().mockImplementation(() => ({
     prompt: mockPrompt,
@@ -25,6 +33,7 @@ vi.mock('node-llama-cpp', () => {
   return {
     getLlama: mockGetLlama,
     LlamaChatSession: MockLlamaChatSession,
+    createModelDownloader: mockCreateModelDownloader,
   };
 });
 
@@ -45,6 +54,11 @@ describe('LocalLlmTranslationService', () => {
 
     // Default: model file exists
     vi.mocked(fsPromises.access).mockResolvedValue(undefined);
+    vi.mocked(fsPromises.mkdir).mockResolvedValue(undefined);
+
+    // Default: downloader succeeds
+    mockCreateModelDownloader.mockResolvedValue({ download: mockDownload });
+    mockDownload.mockResolvedValue('/fake/model.gguf');
 
     // Default getLlama setup
     vi.mocked(getLlama).mockResolvedValue({
@@ -92,11 +106,25 @@ describe('LocalLlmTranslationService', () => {
       await expect(service.translate('   ', 'en', 'ko')).rejects.toThrow(BadRequestException);
     });
 
-    it('모델 파일 없음 → BadRequestException 발생 (메시지에 Model file not found 포함)', async () => {
+    it('모델 파일 없고 자동 다운로드도 실패 → BadRequestException 발생 (메시지에 Model file not found and auto-download failed 포함)', async () => {
       vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT'));
+      mockCreateModelDownloader.mockRejectedValue(new Error('ENOTFOUND'));
 
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(BadRequestException);
-      await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow('Model file not found');
+      await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(
+        'Model file not found and auto-download failed',
+      );
+    });
+
+    it('모델 파일 없지만 자동 다운로드 성공 → 번역 진행됨', async () => {
+      // 첫 번째 access는 실패(파일 없음), 다운로드 성공 후 getLlama 호출
+      vi.mocked(fsPromises.access).mockRejectedValue(new Error('ENOENT'));
+      mockDownload.mockResolvedValue('/fake/model.gguf');
+
+      mockPrompt.mockResolvedValueOnce('안녕하세요');
+
+      const result = await service.translate('Hello', 'en', 'ko');
+      expect(result).toBe('안녕하세요');
     });
 
     it('추론 중 오류 → TranslationException 발생', async () => {

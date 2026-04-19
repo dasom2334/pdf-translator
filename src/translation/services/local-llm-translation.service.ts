@@ -25,6 +25,7 @@ export class LocalLlmTranslationService implements ITranslationService {
 
   private async getSession(): Promise<{ prompt: (text: string) => Promise<string> }> {
     if (!this.session) {
+      await this.ensureModelExists();
       this.logger.log(`Loading local LLM model from: ${this.modelPath}`);
 
       // Dynamic import to avoid CJS require() issues with ESM top-level await in node-llama-cpp
@@ -39,6 +40,56 @@ export class LocalLlmTranslationService implements ITranslationService {
       this.logger.log('Local LLM model loaded successfully');
     }
     return this.session;
+  }
+
+  private async ensureModelExists(): Promise<void> {
+    try {
+      await fs.access(this.modelPath);
+      return;
+    } catch {
+      // 파일 없음 → 자동 다운로드
+    }
+
+    const MODEL_URL =
+      'hf:mradermacher/translategemma-12b-it-GGUF/translategemma-12b-it.Q4_K_M.gguf';
+    const modelDir = path.dirname(this.modelPath);
+    const modelFilename = path.basename(this.modelPath);
+
+    this.logger.warn(`Model file not found at: ${this.modelPath}`);
+    this.logger.log(`Downloading model from ${MODEL_URL} ...`);
+    this.logger.log('This may take a while (file size ~7.3GB)');
+
+    try {
+      await fs.mkdir(modelDir, { recursive: true });
+
+      const { createModelDownloader } = await import('node-llama-cpp');
+      const downloader = await createModelDownloader({
+        modelUri: MODEL_URL,
+        dirPath: modelDir,
+        fileName: modelFilename,
+        onProgress: ({ downloadedSize, totalSize }: { downloadedSize: number; totalSize: number }) => {
+          const pct = totalSize ? ((downloadedSize / totalSize) * 100).toFixed(1) : '?';
+          const mb = (downloadedSize / 1024 / 1024).toFixed(0);
+          const totalMb = totalSize ? (totalSize / 1024 / 1024).toFixed(0) : '?';
+          this.logger.log(`Downloading... ${pct}% (${mb}MB / ${totalMb}MB)`);
+        },
+      });
+      await downloader.download();
+      this.logger.log('Model downloaded successfully');
+    } catch (err) {
+      const message = (err as Error)?.message ?? String(err);
+      this.logger.error(`Model download failed: ${message}`);
+      if (message.includes('ENOSPC')) {
+        this.logger.error('Not enough disk space. Free up space and retry.');
+      } else if (message.includes('ENOTFOUND') || message.includes('EAI_AGAIN')) {
+        this.logger.error('Network error. Check your internet connection and retry.');
+      } else if (message.includes('403') || message.includes('401')) {
+        this.logger.error('Access denied. The model may require HuggingFace authentication.');
+      }
+      throw new BadRequestException(
+        `Model file not found and auto-download failed: ${message}`,
+      );
+    }
   }
 
   private buildPrompt(text: string, sourceLang: string, targetLang: string): string {
@@ -60,6 +111,9 @@ export class LocalLlmTranslationService implements ITranslationService {
       const result = await session.prompt(prompt);
       return result.trim();
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new TranslationException(
         `Local LLM translation failed: ${(error as Error)?.message ?? 'Unknown error'}`,
       );
@@ -69,13 +123,6 @@ export class LocalLlmTranslationService implements ITranslationService {
   async translate(text: string, sourceLang: string, targetLang: string): Promise<string> {
     if (!text || !text.trim()) {
       throw new BadRequestException('Text to translate cannot be empty');
-    }
-
-    // Validate model file exists before attempting inference
-    try {
-      await fs.access(this.modelPath);
-    } catch {
-      throw new BadRequestException(`Model file not found: ${this.modelPath}`);
     }
 
     const chunks = splitIntoChunksWithOverlap(text, MAX_CHUNK_SIZE, OVERLAP_SENTENCES);
