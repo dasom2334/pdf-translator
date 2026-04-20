@@ -32,21 +32,25 @@ export class LocalLlmTranslationService implements ITranslationService {
   }
 
   private async getSession(): Promise<{ prompt: (text: string) => Promise<string> }> {
-    if (!this.session) {
-      await this.ensureModelExists();
-      this.logger.log(`Loading local LLM model from: ${this.modelPath}`);
-
-      // Dynamic import to avoid CJS require() issues with ESM top-level await in node-llama-cpp
-      const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
-      const llama = await getLlama();
-      const model = await llama.loadModel({ modelPath: this.modelPath });
-      const context = await model.createContext();
-      this.session = new LlamaChatSession({
-        contextSequence: context.getSequence(),
-      });
-
-      this.logger.log('Local LLM model loaded successfully');
+    if (this.session) {
+      return this.session;
     }
+
+    await this.ensureModelExists();
+    this.logger.log(`Loading local LLM model from: ${this.modelPath}`);
+
+    // TypeScript(module:commonjs)는 import()를 require()로 변환하므로
+    // new Function을 사용해 변환을 우회하고 네이티브 ESM import() 유지
+    const esmImport = new Function('s', 'return import(s)') as (s: string) => Promise<typeof import('node-llama-cpp')>;
+    const { getLlama, LlamaChatSession } = await esmImport('node-llama-cpp');
+    const llama = await getLlama();
+    const model = await llama.loadModel({ modelPath: this.modelPath });
+    const context = await model.createContext();
+    this.session = new LlamaChatSession({
+      contextSequence: context.getSequence(),
+    });
+
+    this.logger.log('Local LLM model loaded successfully');
     return this.session;
   }
 

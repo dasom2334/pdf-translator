@@ -13,6 +13,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "cli": "npx ts-node -r tsconfig-paths/register src/cli.ts",
+    "cli:prod": "node dist/cli.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
