@@ -58,10 +58,12 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
 
     this.llama = await lib.getLlama();
 
-    // gpuLayers: --gpu-layers 옵션이 명시되면 그 값을, 없으면 "auto"(가용 VRAM 자동 감지)
+    // gpuLayers 결정: --gpu-layers 명시 → 그 값, 없으면 가용 VRAM 50% 목표로 자동 계산
     const gpuLayersEnv = process.env.LOCAL_LLM_GPU_LAYERS;
     const gpuLayers: number | 'auto' =
-      gpuLayersEnv !== undefined ? parseInt(gpuLayersEnv, 10) : 'auto';
+      gpuLayersEnv !== undefined
+        ? parseInt(gpuLayersEnv, 10)
+        : await this.resolveHalfLayers(lib);
 
     this.model = await this.llama.loadModel({ modelPath: this.modelPath, gpuLayers });
 
@@ -80,6 +82,36 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     this.LlamaChatSession = lib.LlamaChatSession;
 
     this.logger.log('Local LLM model loaded successfully');
+  }
+
+  /**
+   * 모델 총 레이어 수의 50%를 기본 GPU 레이어로 계산한다.
+   *
+   * macOS 통합 메모리처럼 VRAM = 전체 RAM인 환경에서는 VRAM 기준이 무의미하므로
+   * 레이어 수 절반을 기준으로 한다. GPU가 없으면 0을 반환.
+   *
+   * 전략:
+   *   1. readGgufFileInfo로 GGUF 헤더만 읽어 총 레이어 수 파악 (가중치 로드 없음, 빠름)
+   *   2. GPU 없으면 0 반환, 있으면 Math.floor(totalLayers / 2) 반환
+   *   3. 계산 실패 시 'auto' 폴백
+   */
+  private async resolveHalfLayers(lib: NodeLlamaCppLib): Promise<number | 'auto'> {
+    try {
+      // GGUF 헤더 파싱으로 총 레이어 수 획득 (가중치 로드 없음)
+      const fileInfo = await lib.readGgufFileInfo(this.modelPath);
+      const totalLayers: number = (fileInfo.architectureMetadata as any)?.block_count ?? 0;
+      if (totalLayers <= 0) return 'auto';
+
+      // GPU 존재 여부 확인
+      const vramState = await this.llama.getVramState();
+      if (vramState.total <= 0) return 0; // GPU 없음 → CPU 전용
+
+      const halfLayers = Math.floor(totalLayers / 2);
+      this.logger.log(`GPU auto-config: ${halfLayers}/${totalLayers} layers (50% of model)`);
+      return halfLayers;
+    } catch {
+      return 'auto';
+    }
   }
 
   /**
