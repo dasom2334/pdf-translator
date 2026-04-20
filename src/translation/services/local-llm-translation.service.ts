@@ -57,7 +57,24 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     const lib = await esmImport('node-llama-cpp');
 
     this.llama = await lib.getLlama();
-    this.model = await this.llama.loadModel({ modelPath: this.modelPath });
+
+    // gpuLayers: --gpu-layers 옵션이 명시되면 그 값을, 없으면 "auto"(가용 VRAM 자동 감지)
+    const gpuLayersEnv = process.env.LOCAL_LLM_GPU_LAYERS;
+    const gpuLayers: number | 'auto' =
+      gpuLayersEnv !== undefined ? parseInt(gpuLayersEnv, 10) : 'auto';
+
+    this.model = await this.llama.loadModel({ modelPath: this.modelPath, gpuLayers });
+
+    // 실제 로드된 GPU 레이어 수 로그
+    const loadedGpuLayers: number | undefined = this.model.gpuLayers;
+    if (loadedGpuLayers !== undefined) {
+      this.logger.log(
+        loadedGpuLayers > 0
+          ? `GPU layers: ${loadedGpuLayers} (VRAM 활용)`
+          : 'GPU layers: 0 (CPU only — GPU 없거나 VRAM 부족)',
+      );
+    }
+
     // contextSize를 명시적으로 지정 → 번역 1회 분량만 캐시, 과도한 VRAM/RAM 점유 방지
     this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
     this.LlamaChatSession = lib.LlamaChatSession;

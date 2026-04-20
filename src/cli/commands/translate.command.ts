@@ -31,6 +31,7 @@ interface TranslateCommandOptions {
   glossary?: string;
   bilingual?: boolean;
   localModel?: string;
+  gpuLayers?: number;
 }
 
 const MAX_RETRY = 3;
@@ -199,6 +200,19 @@ export class TranslateCommand extends CommandRunner {
     return val;
   }
 
+  @Option({
+    flags: '--gpu-layers <n>',
+    description: 'Number of model layers to offload to GPU (local provider only). 0=CPU only, -1=all layers. Omit for auto-detection.',
+  })
+  parseGpuLayers(val: string): number {
+    const n = parseInt(val, 10);
+    if (isNaN(n)) {
+      console.error(`Error: --gpu-layers must be an integer, got "${val}"`);
+      process.exit(1);
+    }
+    return n;
+  }
+
   private async translatePageWithRetry(
     service: ITranslationService,
     texts: string[],
@@ -254,6 +268,9 @@ export class TranslateCommand extends CommandRunner {
     const provider = (opts.provider ?? fileConfig.provider ?? 'mymemory') as TranslationProvider;
     if (provider === TranslationProvider.LOCAL && opts.localModel) {
       process.env.LOCAL_LLM_MODEL_PATH = opts.localModel;
+    }
+    if (provider === TranslationProvider.LOCAL && opts.gpuLayers !== undefined) {
+      process.env.LOCAL_LLM_GPU_LAYERS = String(opts.gpuLayers);
     }
 
     // provider=local이고 localModel 미지정 시 기본 경로 안내
