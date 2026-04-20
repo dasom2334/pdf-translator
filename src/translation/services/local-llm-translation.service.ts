@@ -15,8 +15,15 @@ const MAX_CHUNK_SIZE = 2000;
 const OVERLAP_SENTENCES = 1;
 const DEFAULT_MODEL_PATH = 'assets/models/translateGemma.gguf';
 
-/** 프롬프트 + 응답 1회에 충분한 컨텍스트 크기 (토큰). 모델 최대값을 초과하지 않도록 설정. */
-const CONTEXT_SIZE = 4096;
+/** 프롬프트 + 응답 1회에 충분한 컨텍스트 크기 (토큰). */
+const CONTEXT_SIZE = 2048;
+
+/**
+ * N 블록마다 context 전체를 dispose + 재생성한다.
+ * Metal/CUDA 커맨드 버퍼는 context 수명에 묶여 있어 clearHistory()만으로는 해제 안 됨.
+ * 이 값을 초과할 때마다 강제 해제 → 메모리 안정화.
+ */
+const CONTEXT_REFRESH_EVERY = 20;
 
 type NodeLlamaCppLib = typeof import('node-llama-cpp');
 
@@ -30,6 +37,12 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   private model: any = null;
   private context: any = null;
   private LlamaChatSession: NodeLlamaCppLib['LlamaChatSession'] | null = null;
+  // sequence와 session 각각 보관:
+  //   session.resetChatHistory() → JS 히스토리만 초기화
+  //   sequence.clearHistory()    → C++ KV cache 실제 플러시 (메모리 릭 방지 핵심)
+  private sequence: any = null;
+  private session: any = null;
+  private blockCount = 0;
 
   constructor(private readonly glossaryService: GlossaryService) {
     const modelPath = process.env.LOCAL_LLM_MODEL_PATH;
@@ -81,6 +94,10 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
     this.LlamaChatSession = lib.LlamaChatSession;
 
+    // 세션은 1개만 생성. chunk마다 resetChatHistory()로 재사용 → sequence 고갈 방지
+    this.sequence = this.context.getSequence();
+    this.session = new this.LlamaChatSession({ contextSequence: this.sequence });
+
     this.logger.log('Local LLM model loaded successfully');
   }
 
@@ -120,6 +137,14 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
    */
   async onModuleDestroy(): Promise<void> {
     try {
+      if (this.session) {
+        await this.session.dispose?.();
+        this.session = null;
+      }
+      if (this.sequence) {
+        await this.sequence.dispose?.();
+        this.sequence = null;
+      }
       if (this.context) {
         await this.context.dispose?.();
         this.context = null;
@@ -185,6 +210,22 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     );
   }
 
+  /**
+   * session/sequence/context를 dispose하고 재생성한다.
+   * Metal 커맨드 버퍼는 context 수명에 묶여 clearHistory()만으로는 해제 안 되므로
+   * CONTEXT_REFRESH_EVERY 블록마다 context 전체를 재생성해 강제 해제한다.
+   */
+  private async refreshContext(): Promise<void> {
+    if (this.session) { await this.session.dispose?.(); this.session = null; }
+    if (this.sequence) { await this.sequence.dispose?.(); this.sequence = null; }
+    if (this.context) { await this.context.dispose?.(); this.context = null; }
+
+    this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
+    this.sequence = this.context.getSequence();
+    this.session = new this.LlamaChatSession!({ contextSequence: this.sequence });
+    this.logger.log('Context refreshed (GPU buffer freed)');
+  }
+
   private async translateChunk(
     chunk: string,
     sourceLang: string,
@@ -192,14 +233,17 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   ): Promise<string> {
     await this.loadResources();
 
-    // 청크마다 새 sequence를 발급받아 독립된 KV cache 슬롯을 사용한다.
-    // → 이전 번역 히스토리가 컨텍스트 윈도우에 누적되지 않음.
-    // → 사용 후 dispose()로 슬롯을 context pool에 반환.
-    const sequence = this.context.getSequence();
-    const session = new this.LlamaChatSession!({ contextSequence: sequence });
+    // N 블록마다 context 전체 재생성 → Metal 버퍼 강제 해제
+    this.blockCount++;
+    if (this.blockCount % CONTEXT_REFRESH_EVERY === 0) {
+      await this.refreshContext();
+    } else {
+      this.session.resetChatHistory();
+      await this.sequence.clearHistory();
+    }
 
     try {
-      const result = await session.prompt(this.buildPrompt(chunk, sourceLang, targetLang));
+      const result = await this.session.prompt(this.buildPrompt(chunk, sourceLang, targetLang));
       return result.trim();
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof TranslationException) {
@@ -208,9 +252,6 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
       throw new TranslationException(
         `Local LLM translation failed: ${(error as Error)?.message ?? 'Unknown error'}`,
       );
-    } finally {
-      // KV cache 슬롯 반환 — 누락 시 context pool이 고갈되어 다음 getSequence()에서 hang
-      await sequence.dispose?.();
     }
   }
 
