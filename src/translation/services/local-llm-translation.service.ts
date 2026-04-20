@@ -25,6 +25,12 @@ const CONTEXT_SIZE = 2048;
  */
 const CONTEXT_REFRESH_EVERY = 20;
 
+const LANG_NAMES: Record<string, string> = {
+  auto: 'English', en: 'English', ko: 'Korean', ja: 'Japanese',
+  zh: 'Chinese', fr: 'French', de: 'German', es: 'Spanish',
+  pt: 'Portuguese', ru: 'Russian', ar: 'Arabic', it: 'Italian',
+};
+
 type NodeLlamaCppLib = typeof import('node-llama-cpp');
 
 @Injectable()
@@ -203,10 +209,17 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   private buildPrompt(text: string, sourceLang: string, targetLang: string): string {
+    const src = LANG_NAMES[sourceLang] ?? sourceLang;
+    const tgt = LANG_NAMES[targetLang] ?? targetLang;
     return (
-      `Translate the following text from ${sourceLang} to ${targetLang}.\n` +
-      `Return ONLY the translated text without any explanations.\n\n` +
-      `${text}`
+      `You are a professional translator.\n` +
+      `Translate the following text from ${src} to ${tgt}.\n` +
+      `Rules:\n` +
+      `- Output ONLY the translated text\n` +
+      `- Do NOT include the original text\n` +
+      `- Do NOT add explanations, notes, or comments\n` +
+      `- Preserve formatting and line breaks\n\n` +
+      `Text:\n${text}\n\nTranslation:`
     );
   }
 
