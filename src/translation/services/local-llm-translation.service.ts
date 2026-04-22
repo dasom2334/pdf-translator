@@ -239,23 +239,27 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   /**
-   * session과 sequence만 교체한다. context는 재사용.
+   * context 전체를 dispose하고 재생성한다.
    *
-   * context 전체를 dispose + 재생성하면 구 context 해제 전 신 context가 할당되어
-   * 순간적으로 메모리가 2배로 치솟아 OOM이 발생한다.
-   * 대신 sequence(KV 캐시)만 dispose + 재취득하면:
-   *   - 구 sequence KV 캐시가 해제된 뒤 새 sequence를 얻으므로 스파이크 없음
-   *   - context(Metal 대형 버퍼)는 유지되어 재할당 비용 없음
-   *   - session을 새로 만들어 chat history 완전 초기화
+   * node-llama-cpp는 context 당 sequence 슬롯이 1개뿐이라 sequence-only 교체는
+   * "No sequences left" 오류를 유발한다. 따라서 context 전체를 재생성해야 한다.
+   *
+   * Metal은 dispose() 후 메모리를 즉시 반환하지 않아 즉시 재할당하면 순간 2× 스파이크가
+   * 발생한다. dispose 후 충분히 대기해 Metal이 실제로 해제한 뒤 신 context를 생성한다.
    */
   private async refreshContext(): Promise<void> {
     if (this.session) { await this.session.dispose?.(); this.session = null; }
     if (this.sequence) { await this.sequence.dispose?.(); this.sequence = null; }
+    if (this.context) { await this.context.dispose?.(); this.context = null; }
 
-    // context는 dispose하지 않고 새 sequence만 취득 → Metal 스파이크 없음
+    // Metal GC 대기: dispose 직후 재할당하면 구 context 메모리가 해제되기 전
+    // 신 context가 할당되어 순간 2× 메모리 스파이크 → OOM 유발
+    await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+
+    this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
     this.sequence = this.context.getSequence();
     this.session = new this.LlamaChatSession!({ contextSequence: this.sequence });
-    this.logger.log('Sequence refreshed (KV cache freed, context reused)');
+    this.logger.log('Context refreshed (Metal GC waited, GPU buffer freed)');
   }
 
   private async translateChunk(
