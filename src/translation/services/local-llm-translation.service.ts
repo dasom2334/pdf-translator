@@ -11,12 +11,22 @@ import { mapWithConcurrency } from '../../common/utils/concurrency';
 
 const execFileAsync = promisify(execFile);
 
-const MAX_CHUNK_SIZE = 2000;
+/**
+ * 1회 번역 텍스트 최대 길이 (문자 수).
+ * 프롬프트 오버헤드(~100 토큰) + 입력 + 출력이 CONTEXT_SIZE 안에 들어와야 한다.
+ * CONTEXT_SIZE=1024일 때: 1500자 ÷ 4 ≈ 375 토큰 입력 + 375 토큰 출력 + 100 = 850 토큰 → 안전.
+ */
+const MAX_CHUNK_SIZE = 1500;
 const OVERLAP_SENTENCES = 1;
 const DEFAULT_MODEL_PATH = 'assets/models/translateGemma.gguf';
 
-/** 프롬프트 + 응답 1회에 충분한 컨텍스트 크기 (토큰). */
-const CONTEXT_SIZE = 2048;
+/**
+ * 프롬프트 + 응답 1회에 충분한 컨텍스트 크기 (토큰).
+ * 2048 → 1024: KV 캐시 메모리 절반 감소 (~1.2GB → ~600MB).
+ * 16GB Mac에서 50% GPU 레이어로 18페이지 번역 시 inference 피크가 10-11GB에 달해
+ * OOM이 반복됐으므로, CONTEXT_SIZE를 줄여 피크를 8GB 이하로 낮춘다.
+ */
+const CONTEXT_SIZE = 1024;
 
 /**
  * N 블록마다 sequence를 교체해 KV 캐시를 강제 해제한다.
@@ -253,8 +263,9 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     if (this.context) { await this.context.dispose?.(); this.context = null; }
 
     // Metal GC 대기: dispose 직후 재할당하면 구 context 메모리가 해제되기 전
-    // 신 context가 할당되어 순간 2× 메모리 스파이크 → OOM 유발
-    await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    // 신 context가 할당되어 순간 2× 메모리 스파이크 → OOM 유발.
+    // 1.5초로는 16GB Mac에서 18페이지 번역 시 5번째 refresh에서 OOM 발생 확인 → 5초로 증가.
+    await new Promise<void>((resolve) => setTimeout(resolve, 5000));
 
     this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
     this.sequence = this.context.getSequence();
