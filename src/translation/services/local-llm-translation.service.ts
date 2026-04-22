@@ -19,13 +19,16 @@ const DEFAULT_MODEL_PATH = 'assets/models/translateGemma.gguf';
 const CONTEXT_SIZE = 2048;
 
 /**
- * N 블록마다 context 전체를 dispose + 재생성한다.
- * Metal/CUDA 커맨드 버퍼는 context 수명에 묶여 있어 clearHistory()만으로는 해제 안 됨.
- * 이 값을 초과할 때마다 강제 해제 → 메모리 안정화.
- * Apple Silicon 통합 메모리에서 Metal 작업 버퍼가 누적되어 OOM을 유발할 수 있으므로
- * 빈도를 높여(5블록마다) Metal flush를 자주 수행한다.
+ * N 블록마다 sequence를 교체해 KV 캐시를 강제 해제한다.
+ *
+ * context 전체를 dispose + 재생성하면 구 context 해제 전에 신 context가 할당되어
+ * Apple Silicon 통합 메모리에서 순간적으로 2배 스파이크가 발생하고 OOM을 유발한다.
+ * 대신 context는 유지하고 sequence(KV 캐시)만 dispose + 재취득하면:
+ *   - Metal 대형 버퍼(context) 재할당 없음 → 스파이크 제거
+ *   - sequence.dispose()로 KV 캐시는 실제 해제
+ *   - GPU 레이어 설정과 속도 유지
  */
-const CONTEXT_REFRESH_EVERY = 5;
+const CONTEXT_REFRESH_EVERY = 20;
 
 const LANG_NAMES: Record<string, string> = {
   auto: 'English', en: 'English', ko: 'Korean', ja: 'Japanese',
@@ -118,17 +121,16 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   /**
-   * 모델 총 레이어 수의 25%를 기본 GPU 레이어로 계산한다.
+   * 모델 총 레이어 수의 50%를 기본 GPU 레이어로 계산한다.
    *
-   * Apple Silicon 통합 메모리에서는 모델 가중치 메모리는 GPU/CPU 비율과 무관하게 동일하지만,
-   * Metal 커맨드 버퍼 / KV 캐시 / scratch 버퍼 등 추론 작업 메모리는 GPU 레이어 수에 비례한다.
-   * 50%로 설정 시 18페이지(422블록) 규모에서 Metal 버퍼 누적으로 인한 OOM 및 강제 재부팅이
-   * 발생했으므로, 25%로 줄여 Metal 작업 메모리를 절반으로 감소시킨다.
+   * OOM의 근본 원인은 GPU 레이어 수가 아닌 context 전체 재생성 시 발생하는
+   * 순간 2배 메모리 스파이크였다. refreshContext를 sequence-only 교체로 변경하여
+   * 스파이크를 제거했으므로 GPU 레이어를 50%로 복구해 속도를 유지한다.
    * GPU가 없으면 0을 반환.
    *
    * 전략:
    *   1. readGgufFileInfo로 GGUF 헤더만 읽어 총 레이어 수 파악 (가중치 로드 없음, 빠름)
-   *   2. GPU 없으면 0 반환, 있으면 Math.floor(totalLayers / 4) 반환 (25%)
+   *   2. GPU 없으면 0 반환, 있으면 Math.floor(totalLayers / 2) 반환 (50%)
    *   3. 계산 실패 시 'auto' 폴백
    */
   private async resolveHalfLayers(lib: NodeLlamaCppLib): Promise<number | 'auto'> {
@@ -142,9 +144,9 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
       const vramState = await this.llama.getVramState();
       if (vramState.total <= 0) return 0; // GPU 없음 → CPU 전용
 
-      const quarterLayers = Math.floor(totalLayers / 4);
-      this.logger.log(`GPU auto-config: ${quarterLayers}/${totalLayers} layers (25% of model)`);
-      return quarterLayers;
+      const halfLayers = Math.floor(totalLayers / 2);
+      this.logger.log(`GPU auto-config: ${halfLayers}/${totalLayers} layers (50% of model)`);
+      return halfLayers;
     } catch {
       return 'auto';
     }
@@ -237,19 +239,23 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   /**
-   * session/sequence/context를 dispose하고 재생성한다.
-   * Metal 커맨드 버퍼는 context 수명에 묶여 clearHistory()만으로는 해제 안 되므로
-   * CONTEXT_REFRESH_EVERY 블록마다 context 전체를 재생성해 강제 해제한다.
+   * session과 sequence만 교체한다. context는 재사용.
+   *
+   * context 전체를 dispose + 재생성하면 구 context 해제 전 신 context가 할당되어
+   * 순간적으로 메모리가 2배로 치솟아 OOM이 발생한다.
+   * 대신 sequence(KV 캐시)만 dispose + 재취득하면:
+   *   - 구 sequence KV 캐시가 해제된 뒤 새 sequence를 얻으므로 스파이크 없음
+   *   - context(Metal 대형 버퍼)는 유지되어 재할당 비용 없음
+   *   - session을 새로 만들어 chat history 완전 초기화
    */
   private async refreshContext(): Promise<void> {
     if (this.session) { await this.session.dispose?.(); this.session = null; }
     if (this.sequence) { await this.sequence.dispose?.(); this.sequence = null; }
-    if (this.context) { await this.context.dispose?.(); this.context = null; }
 
-    this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
+    // context는 dispose하지 않고 새 sequence만 취득 → Metal 스파이크 없음
     this.sequence = this.context.getSequence();
     this.session = new this.LlamaChatSession!({ contextSequence: this.sequence });
-    this.logger.log('Context refreshed (GPU buffer freed)');
+    this.logger.log('Sequence refreshed (KV cache freed, context reused)');
   }
 
   private async translateChunk(
