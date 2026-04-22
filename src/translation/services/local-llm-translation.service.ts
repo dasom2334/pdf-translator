@@ -63,6 +63,17 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   /**
+   * node-llama-cpp를 ESM import로 로드한다.
+   * TypeScript(module:commonjs)는 import()를 require()로 변환하므로
+   * new Function을 사용해 변환을 우회하고 네이티브 ESM import() 유지.
+   * protected로 선언해 테스트에서 spy를 통해 native 모듈 로드를 우회할 수 있다.
+   */
+  protected async importNodeLlamaCpp(): Promise<NodeLlamaCppLib> {
+    const esmImport = new Function('s', 'return import(s)') as (s: string) => Promise<NodeLlamaCppLib>;
+    return esmImport('node-llama-cpp');
+  }
+
+  /**
    * llama / model / context를 lazy init으로 로드한다.
    * 모델 로드는 최초 1회만 수행하고 이후에는 캐시된 인스턴스를 반환한다.
    */
@@ -72,10 +83,7 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     await this.ensureModelExists();
     this.logger.log(`Loading local LLM model from: ${this.modelPath}`);
 
-    // TypeScript(module:commonjs)는 import()를 require()로 변환하므로
-    // new Function을 사용해 변환을 우회하고 네이티브 ESM import() 유지
-    const esmImport = new Function('s', 'return import(s)') as (s: string) => Promise<NodeLlamaCppLib>;
-    const lib = await esmImport('node-llama-cpp');
+    const lib = await this.importNodeLlamaCpp();
 
     this.llama = await lib.getLlama();
 

@@ -6,31 +6,37 @@ import { GlossaryService } from './glossary.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
 // vi.hoisted를 사용해 vi.mock 팩토리보다 먼저 초기화되도록 한다.
-const { mockPrompt, mockExecFile } = vi.hoisted(() => {
+const { mockPrompt, mockGetLlama, MockLlamaChatSession, mockReadGgufFileInfo, mockExecFile } = vi.hoisted(() => {
   const mockPrompt = vi.fn().mockResolvedValue('translated text');
-  const mockExecFile = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-  return { mockPrompt, mockExecFile };
-});
+  const mockExecFile = vi.fn();
 
-// Mock node-llama-cpp — native module, cannot use real binaries in tests.
-// Dynamic import 패턴을 사용하므로 vi.mock으로 모듈 전체를 교체한다.
-vi.mock('node-llama-cpp', () => {
   const MockLlamaChatSession = vi.fn().mockImplementation(() => ({
     prompt: mockPrompt,
+    resetChatHistory: vi.fn(),
+    dispose: vi.fn().mockResolvedValue(undefined),
   }));
+
+  const mockReadGgufFileInfo = vi.fn().mockResolvedValue({
+    architectureMetadata: { block_count: 48 },
+  });
 
   const mockGetLlama = vi.fn().mockResolvedValue({
     loadModel: vi.fn().mockResolvedValue({
       createContext: vi.fn().mockResolvedValue({
-        getSequence: vi.fn().mockReturnValue({}),
+        getSequence: vi.fn().mockReturnValue({
+          clearHistory: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn().mockResolvedValue(undefined),
+        }),
+        dispose: vi.fn().mockResolvedValue(undefined),
       }),
+      dispose: vi.fn().mockResolvedValue(undefined),
+      gpuLayers: 0,
     }),
+    getVramState: vi.fn().mockResolvedValue({ total: 0 }),
+    dispose: vi.fn().mockResolvedValue(undefined),
   });
 
-  return {
-    getLlama: mockGetLlama,
-    LlamaChatSession: MockLlamaChatSession,
-  };
+  return { mockPrompt, mockGetLlama, MockLlamaChatSession, mockReadGgufFileInfo, mockExecFile };
 });
 
 // Mock child_process.execFile — createModelDownloader 대신 npx node-llama-cpp pull 사용
@@ -41,7 +47,6 @@ vi.mock('child_process', () => ({
 // Mock fs/promises for model file existence checks
 vi.mock('fs/promises');
 
-import { getLlama } from 'node-llama-cpp';
 import * as fsPromises from 'fs/promises';
 
 describe('LocalLlmTranslationService', () => {
@@ -57,22 +62,13 @@ describe('LocalLlmTranslationService', () => {
     vi.mocked(fsPromises.access).mockResolvedValue(undefined);
     vi.mocked(fsPromises.mkdir).mockResolvedValue(undefined);
 
-    // Default: execFile (npx node-llama-cpp pull) succeeds
+    // Default: execFile (npx node-llama-cpp pull) succeeds via callback pattern
     mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
       if (typeof callback === 'function') {
         callback(null, '', '');
       }
       return {} as ReturnType<typeof import('child_process').execFile>;
     });
-
-    // Default getLlama setup
-    vi.mocked(getLlama).mockResolvedValue({
-      loadModel: vi.fn().mockResolvedValue({
-        createContext: vi.fn().mockResolvedValue({
-          getSequence: vi.fn().mockReturnValue({}),
-        }),
-      }),
-    } as unknown as Awaited<ReturnType<typeof getLlama>>);
 
     // Default prompt returns 'translated text'
     mockPrompt.mockResolvedValue('translated text');
@@ -85,6 +81,14 @@ describe('LocalLlmTranslationService', () => {
 
     service = module.get<LocalLlmTranslationService>(LocalLlmTranslationService);
     glossaryService = module.get<GlossaryService>(GlossaryService);
+
+    // importNodeLlamaCpp를 spy하여 Vitest VM에서 지원하지 않는
+    // new Function 기반 ESM import를 우회한다.
+    vi.spyOn(service as any, 'importNodeLlamaCpp').mockResolvedValue({
+      getLlama: mockGetLlama,
+      LlamaChatSession: MockLlamaChatSession,
+      readGgufFileInfo: mockReadGgufFileInfo,
+    });
   });
 
   afterEach(() => {
@@ -149,14 +153,15 @@ describe('LocalLlmTranslationService', () => {
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(TranslationException);
     });
 
-    it('프롬프트에 sourceLang과 targetLang이 포함된다', async () => {
+    it('프롬프트에 sourceLang과 targetLang 언어 이름이 포함된다', async () => {
       mockPrompt.mockResolvedValueOnce('Hola');
 
       await service.translate('Hello', 'en', 'es');
 
       const callArg = mockPrompt.mock.calls[0][0] as string;
-      expect(callArg).toContain('en');
-      expect(callArg).toContain('es');
+      // buildPrompt는 언어 코드를 전체 이름으로 변환한다 (en → English, es → Spanish)
+      expect(callArg).toContain('English');
+      expect(callArg).toContain('Spanish');
     });
   });
 
@@ -167,7 +172,8 @@ describe('LocalLlmTranslationService', () => {
       await service.translate('Hello', 'en', 'ko');
       await service.translate('World', 'en', 'ko');
 
-      expect(getLlama).toHaveBeenCalledTimes(1);
+      // importNodeLlamaCpp는 lazy init이므로 최초 1회만 호출
+      expect(mockGetLlama).toHaveBeenCalledTimes(1);
     });
   });
 
