@@ -22,8 +22,10 @@ const CONTEXT_SIZE = 2048;
  * N 블록마다 context 전체를 dispose + 재생성한다.
  * Metal/CUDA 커맨드 버퍼는 context 수명에 묶여 있어 clearHistory()만으로는 해제 안 됨.
  * 이 값을 초과할 때마다 강제 해제 → 메모리 안정화.
+ * Apple Silicon 통합 메모리에서 Metal 작업 버퍼가 누적되어 OOM을 유발할 수 있으므로
+ * 빈도를 높여(5블록마다) Metal flush를 자주 수행한다.
  */
-const CONTEXT_REFRESH_EVERY = 20;
+const CONTEXT_REFRESH_EVERY = 5;
 
 const LANG_NAMES: Record<string, string> = {
   auto: 'English', en: 'English', ko: 'Korean', ja: 'Japanese',
@@ -108,14 +110,17 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   }
 
   /**
-   * 모델 총 레이어 수의 50%를 기본 GPU 레이어로 계산한다.
+   * 모델 총 레이어 수의 25%를 기본 GPU 레이어로 계산한다.
    *
-   * macOS 통합 메모리처럼 VRAM = 전체 RAM인 환경에서는 VRAM 기준이 무의미하므로
-   * 레이어 수 절반을 기준으로 한다. GPU가 없으면 0을 반환.
+   * Apple Silicon 통합 메모리에서는 모델 가중치 메모리는 GPU/CPU 비율과 무관하게 동일하지만,
+   * Metal 커맨드 버퍼 / KV 캐시 / scratch 버퍼 등 추론 작업 메모리는 GPU 레이어 수에 비례한다.
+   * 50%로 설정 시 18페이지(422블록) 규모에서 Metal 버퍼 누적으로 인한 OOM 및 강제 재부팅이
+   * 발생했으므로, 25%로 줄여 Metal 작업 메모리를 절반으로 감소시킨다.
+   * GPU가 없으면 0을 반환.
    *
    * 전략:
    *   1. readGgufFileInfo로 GGUF 헤더만 읽어 총 레이어 수 파악 (가중치 로드 없음, 빠름)
-   *   2. GPU 없으면 0 반환, 있으면 Math.floor(totalLayers / 2) 반환
+   *   2. GPU 없으면 0 반환, 있으면 Math.floor(totalLayers / 4) 반환 (25%)
    *   3. 계산 실패 시 'auto' 폴백
    */
   private async resolveHalfLayers(lib: NodeLlamaCppLib): Promise<number | 'auto'> {
@@ -129,9 +134,9 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
       const vramState = await this.llama.getVramState();
       if (vramState.total <= 0) return 0; // GPU 없음 → CPU 전용
 
-      const halfLayers = Math.floor(totalLayers / 2);
-      this.logger.log(`GPU auto-config: ${halfLayers}/${totalLayers} layers (50% of model)`);
-      return halfLayers;
+      const quarterLayers = Math.floor(totalLayers / 4);
+      this.logger.log(`GPU auto-config: ${quarterLayers}/${totalLayers} layers (25% of model)`);
+      return quarterLayers;
     } catch {
       return 'auto';
     }
