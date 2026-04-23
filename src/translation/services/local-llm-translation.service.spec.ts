@@ -6,13 +6,13 @@ import { GlossaryService } from './glossary.service';
 import { TranslationException } from '../../common/exceptions/translation.exception';
 
 // vi.hoisted를 사용해 vi.mock 팩토리보다 먼저 초기화되도록 한다.
-const { mockPrompt, mockGetLlama, MockLlamaChatSession, mockReadGgufFileInfo, mockExecFile } = vi.hoisted(() => {
-  const mockPrompt = vi.fn().mockResolvedValue('translated text');
+const { mockGenerateCompletion, mockGetLlama, MockLlamaCompletion, mockReadGgufFileInfo, mockExecFile } = vi.hoisted(() => {
+  const mockGenerateCompletion = vi.fn().mockResolvedValue('translated text');
   const mockExecFile = vi.fn();
 
-  const MockLlamaChatSession = vi.fn().mockImplementation(() => ({
-    prompt: mockPrompt,
-    resetChatHistory: vi.fn(),
+  // LlamaCompletion mock: generateCompletion 메서드 보유
+  const MockLlamaCompletion = vi.fn().mockImplementation(() => ({
+    generateCompletion: mockGenerateCompletion,
     dispose: vi.fn().mockResolvedValue(undefined),
   }));
 
@@ -36,7 +36,7 @@ const { mockPrompt, mockGetLlama, MockLlamaChatSession, mockReadGgufFileInfo, mo
     dispose: vi.fn().mockResolvedValue(undefined),
   });
 
-  return { mockPrompt, mockGetLlama, MockLlamaChatSession, mockReadGgufFileInfo, mockExecFile };
+  return { mockGenerateCompletion, mockGetLlama, MockLlamaCompletion, mockReadGgufFileInfo, mockExecFile };
 });
 
 // Mock child_process.execFile — createModelDownloader 대신 npx node-llama-cpp pull 사용
@@ -70,8 +70,8 @@ describe('LocalLlmTranslationService', () => {
       return {} as ReturnType<typeof import('child_process').execFile>;
     });
 
-    // Default prompt returns 'translated text'
-    mockPrompt.mockResolvedValue('translated text');
+    // Default generateCompletion returns 'translated text'
+    mockGenerateCompletion.mockResolvedValue('translated text');
 
     process.env = { ...originalEnv };
 
@@ -86,7 +86,7 @@ describe('LocalLlmTranslationService', () => {
     // new Function 기반 ESM import를 우회한다.
     vi.spyOn(service as any, 'importNodeLlamaCpp').mockResolvedValue({
       getLlama: mockGetLlama,
-      LlamaChatSession: MockLlamaChatSession,
+      LlamaCompletion: MockLlamaCompletion,
       readGgufFileInfo: mockReadGgufFileInfo,
     });
   });
@@ -100,8 +100,8 @@ describe('LocalLlmTranslationService', () => {
   });
 
   describe('translate', () => {
-    it('정상 번역 반환 — mock session.prompt가 번역 텍스트를 반환한다', async () => {
-      mockPrompt.mockResolvedValueOnce('안녕하세요');
+    it('정상 번역 반환 — mock completion.generateCompletion이 번역 텍스트를 반환한다', async () => {
+      mockGenerateCompletion.mockResolvedValueOnce('안녕하세요');
 
       const result = await service.translate('Hello', 'en', 'ko');
       expect(result).toBe('안녕하세요');
@@ -141,24 +141,24 @@ describe('LocalLlmTranslationService', () => {
         return {} as ReturnType<typeof import('child_process').execFile>;
       });
 
-      mockPrompt.mockResolvedValueOnce('안녕하세요');
+      mockGenerateCompletion.mockResolvedValueOnce('안녕하세요');
 
       const result = await service.translate('Hello', 'en', 'ko');
       expect(result).toBe('안녕하세요');
     });
 
     it('추론 중 오류 → TranslationException 발생', async () => {
-      mockPrompt.mockRejectedValueOnce(new Error('Inference error'));
+      mockGenerateCompletion.mockRejectedValueOnce(new Error('Inference error'));
 
       await expect(service.translate('Hello', 'en', 'ko')).rejects.toThrow(TranslationException);
     });
 
     it('프롬프트에 sourceLang과 targetLang 언어 이름이 포함된다', async () => {
-      mockPrompt.mockResolvedValueOnce('Hola');
+      mockGenerateCompletion.mockResolvedValueOnce('Hola');
 
       await service.translate('Hello', 'en', 'es');
 
-      const callArg = mockPrompt.mock.calls[0][0] as string;
+      const callArg = mockGenerateCompletion.mock.calls[0][0] as string;
       // buildPrompt는 언어 코드를 전체 이름으로 변환한다 (en → English, es → Spanish)
       expect(callArg).toContain('English');
       expect(callArg).toContain('Spanish');
@@ -167,7 +167,7 @@ describe('LocalLlmTranslationService', () => {
 
   describe('Lazy init', () => {
     it('두 번 translate() 호출 시 getLlama가 1번만 호출된다', async () => {
-      mockPrompt.mockResolvedValue('번역됨');
+      mockGenerateCompletion.mockResolvedValue('번역됨');
 
       await service.translate('Hello', 'en', 'ko');
       await service.translate('World', 'en', 'ko');
