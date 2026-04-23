@@ -22,23 +22,15 @@ const DEFAULT_MODEL_PATH = 'assets/models/translateGemma.gguf';
 
 /**
  * 프롬프트 + 응답 1회에 충분한 컨텍스트 크기 (토큰).
- * 2048 → 1024: KV 캐시 메모리 절반 감소 (~1.2GB → ~600MB).
- * 16GB Mac에서 50% GPU 레이어로 18페이지 번역 시 inference 피크가 10-11GB에 달해
- * OOM이 반복됐으므로, CONTEXT_SIZE를 줄여 피크를 8GB 이하로 낮춘다.
+ * 2048 → 1024: KV 캐시 Metal 버퍼 절반 감소 (~1.2GB → ~600MB).
  */
 const CONTEXT_SIZE = 1024;
 
 /**
- * N 블록마다 sequence를 교체해 KV 캐시를 강제 해제한다.
- *
- * context 전체를 dispose + 재생성하면 구 context 해제 전에 신 context가 할당되어
- * Apple Silicon 통합 메모리에서 순간적으로 2배 스파이크가 발생하고 OOM을 유발한다.
- * 대신 context는 유지하고 sequence(KV 캐시)만 dispose + 재취득하면:
- *   - Metal 대형 버퍼(context) 재할당 없음 → 스파이크 제거
- *   - sequence.dispose()로 KV 캐시는 실제 해제
- *   - GPU 레이어 설정과 속도 유지
+ * 번역 응답 최대 토큰 수.
+ * 출력 길이를 제한해 KV 캐시 사용량과 inference 시간을 줄인다.
  */
-const CONTEXT_REFRESH_EVERY = 20;
+const MAX_RESPONSE_TOKENS = 512;
 
 const LANG_NAMES: Record<string, string> = {
   auto: 'English', en: 'English', ko: 'Korean', ja: 'Japanese',
@@ -57,13 +49,13 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   private llama: any = null; // node-llama-cpp 타입은 ESM-only라 any 사용
   private model: any = null;
   private context: any = null;
-  private LlamaChatSession: NodeLlamaCppLib['LlamaChatSession'] | null = null;
-  // sequence와 session 각각 보관:
-  //   session.resetChatHistory() → JS 히스토리만 초기화
-  //   sequence.clearHistory()    → C++ KV cache 실제 플러시 (메모리 릭 방지 핵심)
+  // LlamaCompletion: LlamaChatSession 대신 raw completion API 사용.
+  //   - 채팅 래퍼(Jinja 템플릿) 오버헤드 없음
+  //   - 매 블록 sequence.clearHistory()로 KV 캐시 정리 → context 재생성 불필요
+  //   - context 재생성이 없으므로 Metal 2× 스파이크 원천 차단
+  private LlamaCompletion: NodeLlamaCppLib['LlamaCompletion'] | null = null;
   private sequence: any = null;
-  private session: any = null;
-  private blockCount = 0;
+  private completion: any = null;
 
   constructor(private readonly glossaryService: GlossaryService) {
     const modelPath = process.env.LOCAL_LLM_MODEL_PATH;
@@ -121,21 +113,19 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
 
     // contextSize를 명시적으로 지정 → 번역 1회 분량만 캐시, 과도한 VRAM/RAM 점유 방지
     this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
-    this.LlamaChatSession = lib.LlamaChatSession;
+    this.LlamaCompletion = lib.LlamaCompletion;
 
-    // 세션은 1개만 생성. chunk마다 resetChatHistory()로 재사용 → sequence 고갈 방지
+    // sequence와 completion은 프로세스 전체에서 1개만 생성.
+    // 매 번역 전 sequence.clearHistory()로 KV 캐시를 초기화해 재사용한다.
+    // context 재생성 없이 KV 캐시만 비우므로 Metal 메모리 스파이크가 발생하지 않는다.
     this.sequence = this.context.getSequence();
-    this.session = new this.LlamaChatSession({ contextSequence: this.sequence });
+    this.completion = new this.LlamaCompletion({ contextSequence: this.sequence });
 
     this.logger.log('Local LLM model loaded successfully');
   }
 
   /**
    * 모델 총 레이어 수의 50%를 기본 GPU 레이어로 계산한다.
-   *
-   * OOM의 근본 원인은 GPU 레이어 수가 아닌 context 전체 재생성 시 발생하는
-   * 순간 2배 메모리 스파이크였다. refreshContext를 sequence-only 교체로 변경하여
-   * 스파이크를 제거했으므로 GPU 레이어를 50%로 복구해 속도를 유지한다.
    * GPU가 없으면 0을 반환.
    *
    * 전략:
@@ -164,13 +154,13 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
 
   /**
    * NestJS 앱 종료 시 native 리소스(llama.cpp C++ 힙)를 순서대로 해제한다.
-   * context → model → llama 순서로 해제해야 dangling pointer가 발생하지 않는다.
+   * completion → sequence → context → model → llama 순서로 해제해야 dangling pointer가 발생하지 않는다.
    */
   async onModuleDestroy(): Promise<void> {
     try {
-      if (this.session) {
-        await this.session.dispose?.();
-        this.session = null;
+      if (this.completion) {
+        await this.completion.dispose?.();
+        this.completion = null;
       }
       if (this.sequence) {
         await this.sequence.dispose?.();
@@ -248,31 +238,6 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
     );
   }
 
-  /**
-   * context 전체를 dispose하고 재생성한다.
-   *
-   * node-llama-cpp는 context 당 sequence 슬롯이 1개뿐이라 sequence-only 교체는
-   * "No sequences left" 오류를 유발한다. 따라서 context 전체를 재생성해야 한다.
-   *
-   * Metal은 dispose() 후 메모리를 즉시 반환하지 않아 즉시 재할당하면 순간 2× 스파이크가
-   * 발생한다. dispose 후 충분히 대기해 Metal이 실제로 해제한 뒤 신 context를 생성한다.
-   */
-  private async refreshContext(): Promise<void> {
-    if (this.session) { await this.session.dispose?.(); this.session = null; }
-    if (this.sequence) { await this.sequence.dispose?.(); this.sequence = null; }
-    if (this.context) { await this.context.dispose?.(); this.context = null; }
-
-    // Metal GC 대기: dispose 직후 재할당하면 구 context 메모리가 해제되기 전
-    // 신 context가 할당되어 순간 2× 메모리 스파이크 → OOM 유발.
-    // 1.5초로는 16GB Mac에서 18페이지 번역 시 5번째 refresh에서 OOM 발생 확인 → 5초로 증가.
-    await new Promise<void>((resolve) => setTimeout(resolve, 5000));
-
-    this.context = await this.model.createContext({ contextSize: CONTEXT_SIZE });
-    this.sequence = this.context.getSequence();
-    this.session = new this.LlamaChatSession!({ contextSequence: this.sequence });
-    this.logger.log('Context refreshed (Metal GC waited, GPU buffer freed)');
-  }
-
   private async translateChunk(
     chunk: string,
     sourceLang: string,
@@ -280,17 +245,16 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   ): Promise<string> {
     await this.loadResources();
 
-    // N 블록마다 context 전체 재생성 → Metal 버퍼 강제 해제
-    this.blockCount++;
-    if (this.blockCount % CONTEXT_REFRESH_EVERY === 0) {
-      await this.refreshContext();
-    } else {
-      this.session.resetChatHistory();
-      await this.sequence.clearHistory();
-    }
+    // 매 블록 전 KV 캐시를 초기화한다.
+    // clearHistory()는 C++ KV 캐시를 직접 비우므로 Metal 버퍼 재할당 없이 메모리를 재사용한다.
+    // context 재생성을 하지 않으므로 Metal 2× 스파이크가 발생하지 않는다.
+    await this.sequence.clearHistory();
 
     try {
-      const result = await this.session.prompt(this.buildPrompt(chunk, sourceLang, targetLang));
+      const result = await this.completion.generateCompletion(
+        this.buildPrompt(chunk, sourceLang, targetLang),
+        { maxTokens: MAX_RESPONSE_TOKENS },
+      );
       return result.trim();
     } catch (error) {
       if (error instanceof BadRequestException || error instanceof TranslationException) {
