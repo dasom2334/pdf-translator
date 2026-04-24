@@ -43,7 +43,6 @@ type NodeLlamaCppLib = typeof import('node-llama-cpp');
 @Injectable()
 export class LocalLlmTranslationService implements ITranslationService, OnModuleDestroy {
   private readonly logger = new Logger(LocalLlmTranslationService.name);
-  private readonly modelPath: string;
 
   // 무거운 리소스 — lazy init + 싱글톤. native 메모리를 보유하므로 반드시 dispose 필요.
   private llama: any = null; // node-llama-cpp 타입은 ESM-only라 any 사용
@@ -57,14 +56,16 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   private sequence: any = null;
   private completion: any = null;
 
-  constructor(private readonly glossaryService: GlossaryService) {
-    const modelPath = process.env.LOCAL_LLM_MODEL_PATH;
-    if (!modelPath) {
-      this.logger.warn(
-        'LOCAL_LLM_MODEL_PATH not set. Using default path. Use --local-model to specify the model path explicitly.',
-      );
-    }
-    this.modelPath = modelPath ?? path.resolve(process.cwd(), DEFAULT_MODEL_PATH);
+  constructor(private readonly glossaryService: GlossaryService) {}
+
+  /**
+   * 모델 경로를 lazy하게 반환한다.
+   * 생성자가 아닌 loadResources() 시점에 읽으므로, CLI run()에서
+   * process.env.LOCAL_LLM_MODEL_PATH를 설정한 뒤에도 올바른 경로를 사용한다.
+   * (NestJS DI는 CommandFactory.run() 이전에 생성자를 실행하므로 생성자에서 읽으면 값이 없다.)
+   */
+  private get effectiveModelPath(): string {
+    return process.env.LOCAL_LLM_MODEL_PATH ?? path.resolve(process.cwd(), DEFAULT_MODEL_PATH);
   }
 
   /**
@@ -85,8 +86,13 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   private async loadResources(): Promise<void> {
     if (this.llama) return;
 
+    if (!process.env.LOCAL_LLM_MODEL_PATH) {
+      this.logger.warn(
+        'LOCAL_LLM_MODEL_PATH not set. Using default path. Use --local-model to specify the model path explicitly.',
+      );
+    }
     await this.ensureModelExists();
-    this.logger.log(`Loading local LLM model from: ${this.modelPath}`);
+    this.logger.log(`Loading local LLM model from: ${this.effectiveModelPath}`);
 
     const lib = await this.importNodeLlamaCpp();
 
@@ -99,7 +105,7 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
         ? parseInt(gpuLayersEnv, 10)
         : await this.resolveHalfLayers(lib);
 
-    this.model = await this.llama.loadModel({ modelPath: this.modelPath, gpuLayers });
+    this.model = await this.llama.loadModel({ modelPath: this.effectiveModelPath, gpuLayers });
 
     // 실제 로드된 GPU 레이어 수 로그
     const loadedGpuLayers: number | undefined = this.model.gpuLayers;
@@ -136,7 +142,7 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
   private async resolveHalfLayers(lib: NodeLlamaCppLib): Promise<number | 'auto'> {
     try {
       // GGUF 헤더 파싱으로 총 레이어 수 획득 (가중치 로드 없음)
-      const fileInfo = await lib.readGgufFileInfo(this.modelPath);
+      const fileInfo = await lib.readGgufFileInfo(this.effectiveModelPath);
       const totalLayers: number = (fileInfo.architectureMetadata as any)?.block_count ?? 0;
       if (totalLayers <= 0) return 'auto';
 
@@ -185,7 +191,7 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
 
   private async ensureModelExists(): Promise<void> {
     try {
-      await fs.access(this.modelPath);
+      await fs.access(this.effectiveModelPath);
       return;
     } catch {
       // 파일 없음 → 자동 다운로드
@@ -193,10 +199,10 @@ export class LocalLlmTranslationService implements ITranslationService, OnModule
 
     const MODEL_URI =
       'hf:mradermacher/translategemma-12b-it-GGUF/translategemma-12b-it.Q4_K_M.gguf';
-    const modelDir = path.dirname(this.modelPath);
-    const modelFilename = path.basename(this.modelPath);
+    const modelDir = path.dirname(this.effectiveModelPath);
+    const modelFilename = path.basename(this.effectiveModelPath);
 
-    this.logger.warn(`Model file not found at: ${this.modelPath}`);
+    this.logger.warn(`Model file not found at: ${this.effectiveModelPath}`);
     this.logger.log(`Downloading model (~7.3GB). This may take a while...`);
 
     try {

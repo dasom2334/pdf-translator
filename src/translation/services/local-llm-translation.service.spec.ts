@@ -184,6 +184,40 @@ describe('LocalLlmTranslationService', () => {
     });
   });
 
+  describe('onModuleDestroy', () => {
+    it('번역 후 destroy 시 모든 native 리소스가 순서대로 해제된다', async () => {
+      // 리소스를 초기화하기 위해 translate 호출
+      mockGenerateCompletion.mockResolvedValueOnce('번역됨');
+      await service.translate('Hello', 'en', 'ko');
+
+      // 내부 리소스 참조 획득
+      const completionDispose = (service as any).completion?.dispose;
+      const sequenceDispose = (service as any).sequence?.dispose;
+      const contextDispose = (service as any).context?.dispose;
+      const modelDispose = (service as any).model?.dispose;
+      const llamaDispose = (service as any).llama?.dispose;
+
+      await service.onModuleDestroy();
+
+      // 모든 dispose가 호출됐고 필드가 null로 정리됐는지 검증
+      expect(completionDispose).toHaveBeenCalledTimes(1);
+      expect(sequenceDispose).toHaveBeenCalledTimes(1);
+      expect(contextDispose).toHaveBeenCalledTimes(1);
+      expect(modelDispose).toHaveBeenCalledTimes(1);
+      expect(llamaDispose).toHaveBeenCalledTimes(1);
+      expect((service as any).completion).toBeNull();
+      expect((service as any).sequence).toBeNull();
+      expect((service as any).context).toBeNull();
+      expect((service as any).model).toBeNull();
+      expect((service as any).llama).toBeNull();
+    });
+
+    it('리소스 미초기화 상태에서 destroy 시 오류 없이 종료된다', async () => {
+      // translate를 호출하지 않아 리소스가 null인 상태
+      await expect(service.onModuleDestroy()).resolves.not.toThrow();
+    });
+  });
+
   describe('translateBatch', () => {
     it('여러 텍스트를 직렬로 번역한다', async () => {
       const translateSpy = vi.spyOn(service, 'translate');
