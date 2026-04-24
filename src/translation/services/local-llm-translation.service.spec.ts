@@ -177,6 +177,27 @@ describe('LocalLlmTranslationService', () => {
     });
   });
 
+  describe('clearHistory', () => {
+    it('translateChunk 호출마다 clearHistory가 1회 호출된다', async () => {
+      // 단일 청크 → clearHistory 1회
+      mockGenerateCompletion.mockResolvedValueOnce('안녕하세요');
+      await service.translate('Hello', 'en', 'ko');
+
+      const seq = (service as any).sequence;
+      expect(seq.clearHistory).toHaveBeenCalledTimes(1);
+    });
+
+    it('두 번째 translate() 호출 시 clearHistory가 누적 호출된다', async () => {
+      mockGenerateCompletion.mockResolvedValue('번역됨');
+      await service.translate('Hello', 'en', 'ko');
+      await service.translate('World', 'en', 'ko');
+
+      const seq = (service as any).sequence;
+      // 각 translate() 호출이 단일 청크이므로 총 2회
+      expect(seq.clearHistory).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('getSupportedLanguages', () => {
     it('빈 배열을 반환한다', async () => {
       const result = await service.getSupportedLanguages();
