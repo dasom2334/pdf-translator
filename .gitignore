@@ -30,3 +30,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Local LLM model files
+assets/models/*.gguf

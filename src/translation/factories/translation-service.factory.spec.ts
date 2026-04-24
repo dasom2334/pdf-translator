@@ -5,6 +5,7 @@ import { TranslationServiceFactory } from './translation-service.factory';
 import { TranslationProvider } from '../../common/enums/translation-provider.enum';
 import { MyMemoryTranslationService } from '../services/mymemory-translation.service';
 import { GeminiTranslationService } from '../services/gemini-translation.service';
+import { LocalLlmTranslationService } from '../services/local-llm-translation.service';
 import { GlossaryService } from '../services/glossary.service';
 
 vi.mock('@google/generative-ai', () => {
@@ -14,10 +15,19 @@ vi.mock('@google/generative-ai', () => {
   return { GoogleGenerativeAI: MockGoogleGenerativeAI };
 });
 
+// node-llama-cpp는 ESM native 모듈이므로 mock 처리
+vi.mock('node-llama-cpp', () => ({
+  getLlama: vi.fn(),
+  LlamaChatSession: vi.fn(),
+}));
+
+vi.mock('fs/promises');
+
 describe('TranslationServiceFactory', () => {
   let factory: TranslationServiceFactory;
   let myMemoryService: MyMemoryTranslationService;
   let geminiService: GeminiTranslationService;
+  let localLlmService: LocalLlmTranslationService;
 
   beforeEach(async () => {
     process.env.GEMINI_API_KEY = 'test-key';
@@ -28,13 +38,14 @@ describe('TranslationServiceFactory', () => {
         TranslationServiceFactory,
         MyMemoryTranslationService,
         GeminiTranslationService,
+        LocalLlmTranslationService,
       ],
     }).compile();
 
     factory = module.get<TranslationServiceFactory>(TranslationServiceFactory);
     myMemoryService = module.get<MyMemoryTranslationService>(MyMemoryTranslationService);
     geminiService = module.get<GeminiTranslationService>(GeminiTranslationService);
-
+    localLlmService = module.get<LocalLlmTranslationService>(LocalLlmTranslationService);
   });
 
   it('should be defined', () => {
@@ -50,6 +61,11 @@ describe('TranslationServiceFactory', () => {
     it('should return GeminiTranslationService for GEMINI provider', () => {
       const service = factory.getService(TranslationProvider.GEMINI);
       expect(service).toBe(geminiService);
+    });
+
+    it('should return LocalLlmTranslationService for LOCAL provider', () => {
+      const service = factory.getService(TranslationProvider.LOCAL);
+      expect(service).toBe(localLlmService);
     });
 
     it('should throw BadRequestException for unknown provider', () => {

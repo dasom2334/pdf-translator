@@ -30,6 +30,7 @@ export interface TextBlock {
 export enum TranslationProvider {
   MYMEMORY = 'mymemory',
   GEMINI = 'gemini',
+  LOCAL = 'local',
 }
 ```
 
@@ -96,7 +97,8 @@ pnpm run cli -- translate \
   [-p mymemory|gemini] \
   [--mode overlay|rebuild] \
   [--font <path-to-ttf>] \
-  [--pages 1-5,10]
+  [--pages 1-5,10] \
+  [--local-model <path-to-gguf>]
 ```
 
 ### API Endpoints (Phase 3+ 예정)
@@ -110,6 +112,7 @@ UPLOAD_DIR=./uploads
 MAX_FILE_SIZE=10485760
 GEMINI_API_KEY=
 MYMEMORY_EMAIL=          # 선택사항. 설정 시 MyMemory 일일 한도 1,000→10,000 단어로 증가 및 403 우회
+LOCAL_LLM_MODEL_PATH=   # 선택사항. 기본값: assets/models/translateGemma.gguf
 # PORT=3000              # 향후 HTTP API 용
 ```
 
