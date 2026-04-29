@@ -289,7 +289,8 @@ export class PdfExtractorService implements IPdfExtractor {
       const pdfX = transform[4];
       const pdfY = transform[5];
       const x = pdfX;
-      const y = pageHeight - pdfY - (item.height ?? fontSize);
+      const itemHeight = item.height || fontSize;
+      const y = pageHeight - pdfY - itemHeight;
 
       const block: TextBlock = {
         text,
@@ -297,7 +298,7 @@ export class PdfExtractorService implements IPdfExtractor {
         x,
         y,
         width: item.width ?? 0,
-        height: item.height ?? fontSize,
+        height: itemHeight,
         fontSize: Math.round(fontSize * 100) / 100,
         fontName: item.fontName ?? '',
       };

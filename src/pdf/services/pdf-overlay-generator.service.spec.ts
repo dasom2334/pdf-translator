@@ -154,55 +154,28 @@ describe('PdfOverlayGeneratorService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Overflow — fitText internal logic
+  // Overflow — wrapText keeps font size, wraps lines instead
   // -------------------------------------------------------------------------
 
-  describe('fitText (overflow logic via overlay)', () => {
-    it('should shrink fontSize when text slightly overflows', async () => {
-      const pdfBuffer = await createMinimalPdfBuffer();
-      const outputPath = path.join(tmpDir, 'output-shrink.pdf');
+  it('should wrap long text without shrinking font size', async () => {
+    const pdfBuffer = await createMinimalPdfBuffer();
+    const outputPath = path.join(tmpDir, 'output-wrap.pdf');
 
-      // Moderately overflowing text: the service should reduce fontSize
-      const moderateOverflow = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 30 chars
-      const blocks: TextBlock[] = [makeBlock({ width: 60, fontSize: 14, translatedText: moderateOverflow })];
+    const longText = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 30 chars, overflows 60pt box
+    const blocks: TextBlock[] = [makeBlock({ width: 60, fontSize: 14, translatedText: longText })];
 
-      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
-      expect(fs.existsSync(outputPath)).toBe(true);
-    });
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
+    expect(fs.existsSync(outputPath)).toBe(true);
+  });
 
-    it('should truncate with ellipsis when text cannot fit even at MIN_FONT_SIZE', async () => {
-      const pdfBuffer = await createMinimalPdfBuffer();
-      const outputPath = path.join(tmpDir, 'output-ellipsis.pdf');
+  it('should handle zero boxWidth without throwing', async () => {
+    const pdfBuffer = await createMinimalPdfBuffer();
+    const outputPath = path.join(tmpDir, 'output-zero-width.pdf');
 
-      // Extremely long text in a tiny box: must trigger ellipsis path
-      const extremeOverflow = 'X'.repeat(500);
-      const blocks: TextBlock[] = [makeBlock({ width: 10, fontSize: 12, translatedText: extremeOverflow })];
+    const blocks: TextBlock[] = [makeBlock({ width: 0, fontSize: 12, translatedText: 'Some text' })];
 
-      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
-      expect(fs.existsSync(outputPath)).toBe(true);
-    }, 15000);
-
-    it('should not enter infinite loop when boxWidth is 0', async () => {
-      const pdfBuffer = await createMinimalPdfBuffer();
-      const outputPath = path.join(tmpDir, 'output-zero-width.pdf');
-
-      const blocks: TextBlock[] = [makeBlock({ width: 0, fontSize: 12, translatedText: 'Some text' })];
-
-      await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
-      expect(fs.existsSync(outputPath)).toBe(true);
-    });
-
-    it('fitText should shrink font size when text overflows boxWidth', () => {
-      const measureWidth = (t: string, size: number) => t.length * size * 0.6;
-      const result = service.fitText('AAAAAAAAAAAAAAAA', 30, 14, measureWidth);
-      expect(result.fontSize).toBeLessThan(14);
-    });
-
-    it('fitText should return empty string when boxWidth is 0', () => {
-      const measureWidth = (t: string, size: number) => t.length * size * 0.6;
-      const result = service.fitText('Hello', 0, 12, measureWidth);
-      expect(result.text).toBe('');
-    });
+    await expect(service.overlay(pdfBuffer, blocks, outputPath, TEST_FONT_OPTIONS)).resolves.not.toThrow();
+    expect(fs.existsSync(outputPath)).toBe(true);
   });
 
   // -------------------------------------------------------------------------

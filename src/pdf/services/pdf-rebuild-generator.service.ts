@@ -9,8 +9,8 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { IPdfRebuildGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 
-const MIN_FONT_SIZE = 4;
-const ELLIPSIS = '...';
+/** Line height multiplier relative to font size. */
+const LINE_HEIGHT_RATIO = 1.2;
 
 /**
  * Default bundled font path (Noto Sans CJK KR).
@@ -36,40 +36,41 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
   }
 
   /**
-   * Fit text into the given width by shrinking font size or truncating with ellipsis.
+   * Wrap text into lines that fit within boxWidth at the given fontSize.
+   * Supports both space-delimited (Latin) and character-level (CJK) wrapping.
    */
-  private fitText(
+  private wrapText(
     text: string,
     boxWidth: number,
-    originalSize: number,
+    fontSize: number,
     measureWidth: (t: string, size: number) => number,
-  ): { text: string; fontSize: number } {
-    let fontSize = originalSize;
+  ): string[] {
+    if (boxWidth <= 0) return [text];
 
-    // Phase 1: shrink font size
-    while (fontSize > MIN_FONT_SIZE && measureWidth(text, fontSize) > boxWidth) {
-      fontSize -= 0.5;
+    const lines: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      let end = remaining.length;
+      // Shrink end until the slice fits, but always keep at least 1 character
+      while (end > 1 && measureWidth(remaining.slice(0, end), fontSize) > boxWidth) {
+        end--;
+      }
+
+      const slice = remaining.slice(0, end);
+      const lastSpace = slice.lastIndexOf(' ');
+
+      // Prefer breaking at a word boundary when the line isn't already at the end
+      if (lastSpace > 0 && end < remaining.length) {
+        lines.push(remaining.slice(0, lastSpace));
+        remaining = remaining.slice(lastSpace + 1);
+      } else {
+        lines.push(slice);
+        remaining = remaining.slice(end);
+      }
     }
 
-    // Phase 2: truncate with ellipsis if still overflowing
-    if (measureWidth(text, fontSize) > boxWidth) {
-      if (boxWidth <= 0) {
-        return { text: '', fontSize };
-      }
-      let truncated = text;
-      while (
-        truncated.length > 0 &&
-        measureWidth(truncated + ELLIPSIS, fontSize) > boxWidth
-      ) {
-        truncated = truncated.slice(0, -1);
-      }
-      if (truncated.length === 0) {
-        return { text: '', fontSize };
-      }
-      return { text: truncated + ELLIPSIS, fontSize };
-    }
-
-    return { text, fontSize };
+    return lines.filter((l) => l.length > 0);
   }
 
   async rebuild(
@@ -83,10 +84,8 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
       );
     }
 
-    // Determine the total number of pages from the blocks
     const maxPage = Math.max(...blocks.map((b) => b.page));
 
-    // Create a new PDF document
     let newDoc: PDFDocument;
     try {
       newDoc = await PDFDocument.create();
@@ -96,10 +95,8 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
       );
     }
 
-    // Register fontkit for custom font embedding
     newDoc.registerFontkit(fontkit);
 
-    // Load font (bytes cached per path to avoid repeated 16MB disk reads)
     const fontPath = options?.fontPath ?? DEFAULT_FONT_PATH;
     let customFont: Awaited<ReturnType<PDFDocument['embedFont']>> | null = null;
 
@@ -113,6 +110,14 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
     const fallbackFont = await newDoc.embedFont(StandardFonts.Helvetica);
     const font = customFont ?? fallbackFont;
 
+    const measureWidth = (t: string, size: number): number => {
+      try {
+        return font.widthOfTextAtSize(t, size);
+      } catch {
+        return t.length * size * 0.6;
+      }
+    };
+
     // Group blocks by page
     const blocksByPage = new Map<number, TextBlock[]>();
     for (const block of blocks) {
@@ -122,10 +127,22 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
       blocksByPage.get(block.page)!.push(block);
     }
 
-    // Determine page dimensions from blocks.
-    // We use a default A4 size (595 x 842 pts) unless blocks provide position hints.
-    // The actual page size should come from the original PDF, but in rebuild mode
-    // we reconstruct from the block coordinates to infer approximate page size.
+    // Pre-compute wrapped lines per block, then compute page dimensions accounting
+    // for overflow (translated text may be taller than the original block).
+    const blockLinesMap = new Map<TextBlock, string[]>();
+    for (const block of blocks) {
+      const displayText = block.translatedText ?? block.text;
+      if (!displayText) continue;
+      const fs = Math.max(block.fontSize, 6);
+      const lines = this.wrapText(
+        displayText,
+        block.width > 0 ? block.width : 9999,
+        fs,
+        measureWidth,
+      );
+      blockLinesMap.set(block, lines);
+    }
+
     const pageDimensions = new Map<number, { width: number; height: number }>();
     for (let pageNum = 1; pageNum <= maxPage; pageNum++) {
       const pageBlocks = blocksByPage.get(pageNum) ?? [];
@@ -134,22 +151,26 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
         continue;
       }
 
-      // Estimate page dimensions from the furthest block extents
-      // (blocks have top-left origin coordinates)
       const maxRight = Math.max(...pageBlocks.map((b) => b.x + b.width));
-      const maxBottom = Math.max(...pageBlocks.map((b) => b.y + b.height));
 
-      // Use standard A4 if computed dimensions are too small
-      const estimatedWidth = Math.max(maxRight + 72, 595);
-      const estimatedHeight = Math.max(maxBottom + 72, 842);
+      // Account for extra height when wrapped lines overflow the original block
+      let maxBottom = 0;
+      for (const block of pageBlocks) {
+        const fs = Math.max(block.fontSize, 6);
+        const lines = blockLinesMap.get(block) ?? [];
+        const lineHeight = fs * LINE_HEIGHT_RATIO;
+        const renderedH = lines.length > 0 ? lines.length * lineHeight : block.height;
+        const bottom = block.y + Math.max(block.height, renderedH);
+        if (bottom > maxBottom) maxBottom = bottom;
+      }
 
       pageDimensions.set(pageNum, {
-        width: estimatedWidth,
-        height: estimatedHeight,
+        width: Math.max(maxRight + 72, 595),
+        height: Math.max(maxBottom + 72, 842),
       });
     }
 
-    // Add pages and draw translated text
+    // Add pages and draw translated text at original font size with line wrapping
     for (let pageNum = 1; pageNum <= maxPage; pageNum++) {
       const dims = pageDimensions.get(pageNum)!;
       const page = newDoc.addPage([dims.width, dims.height]);
@@ -157,49 +178,32 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
 
       for (const block of pageBlocks) {
         const displayText = block.translatedText ?? block.text;
-        if (!displayText) {
-          continue;
-        }
+        if (!displayText) continue;
+
+        const lines = blockLinesMap.get(block);
+        if (!lines || lines.length === 0) continue;
 
         // TextBlock coordinates: top-left origin.
         // pdf-lib uses bottom-left origin.
-        // pdfY = pageHeight - block.y - block.height
         const pdfY = dims.height - block.y - block.height;
+        const fs = Math.max(block.fontSize, 6);
+        const lineHeight = fs * LINE_HEIGHT_RATIO;
 
-        // Measure function
-        const measureWidth = (t: string, size: number): number => {
+        for (let i = 0; i < lines.length; i++) {
+          // Start from the top of the block, moving downward per line
+          const lineY = pdfY + block.height - fs - i * lineHeight;
           try {
-            return font.widthOfTextAtSize(t, size);
-          } catch {
-            return t.length * size * 0.6;
+            page.drawText(lines[i], {
+              x: block.x,
+              y: lineY,
+              size: fs,
+              font,
+            });
+          } catch (err) {
+            this.logger.warn(
+              `rebuild: 블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
-        };
-
-        const { text: fittedText, fontSize: fittedSize } = this.fitText(
-          displayText,
-          block.width > 0 ? block.width : dims.width - block.x,
-          block.fontSize > 0 ? block.fontSize : 10,
-          measureWidth,
-        );
-
-        if (!fittedText) {
-          continue;
-        }
-
-        // Center text vertically within the block height
-        const yOffset = (block.height - fittedSize) / 2;
-
-        try {
-          page.drawText(fittedText, {
-            x: block.x,
-            y: pdfY + yOffset,
-            size: fittedSize,
-            font,
-          });
-        } catch (err) {
-          this.logger.warn(
-            `rebuild: 블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
-          );
         }
       }
     }

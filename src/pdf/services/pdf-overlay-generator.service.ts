@@ -7,13 +7,14 @@ import {
 } from '@nestjs/common';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { IPdfOverlayGenerator, PdfGenerateOptions, TextBlock } from '../interfaces';
 import { renderPdfPages, RenderedPage } from '../utils/pdf-page-renderer';
 
-const MIN_FONT_SIZE = 4;
-const ELLIPSIS = '...';
 /** Fraction of fontSize added below the baseline to cover descenders (g, p, y 등). */
 const DESCENDER_PAD_RATIO = 0.2;
+/** Line height multiplier relative to font size. */
+const LINE_HEIGHT_RATIO = 1.2;
 
 /**
  * Default bundled font path (Noto Sans CJK KR).
@@ -113,37 +114,91 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
   }
 
   /**
-   * Fit text into the given width using font size shrinking and ellipsis truncation.
+   * Wrap text into lines that fit within boxWidth at the given fontSize.
+   * Supports both space-delimited (Latin) and character-level (CJK) wrapping.
    */
-  fitText(
+  private wrapText(
     text: string,
     boxWidth: number,
-    originalSize: number,
+    fontSize: number,
     measureWidth: (t: string, size: number) => number,
-  ): { text: string; fontSize: number } {
-    let fontSize = originalSize;
-    while (fontSize > MIN_FONT_SIZE && measureWidth(text, fontSize) > boxWidth) {
-      fontSize -= 0.5;
+  ): string[] {
+    if (boxWidth <= 0) return [text];
+
+    const lines: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      let end = remaining.length;
+      // Shrink end until the slice fits, but always keep at least 1 character
+      while (end > 1 && measureWidth(remaining.slice(0, end), fontSize) > boxWidth) {
+        end--;
+      }
+
+      const slice = remaining.slice(0, end);
+      const lastSpace = slice.lastIndexOf(' ');
+
+      // Prefer breaking at a word boundary when the line isn't already at the end
+      if (lastSpace > 0 && end < remaining.length) {
+        lines.push(remaining.slice(0, lastSpace));
+        remaining = remaining.slice(lastSpace + 1);
+      } else {
+        lines.push(slice);
+        remaining = remaining.slice(end);
+      }
     }
 
-    if (measureWidth(text, fontSize) > boxWidth) {
-      if (boxWidth <= 0) {
-        return { text: '', fontSize };
-      }
-      let truncated = text;
-      while (
-        truncated.length > 0 &&
-        measureWidth(truncated + ELLIPSIS, fontSize) > boxWidth
-      ) {
-        truncated = truncated.slice(0, -1);
-      }
-      if (truncated.length === 0) {
-        return { text: '', fontSize };
-      }
-      return { text: truncated + ELLIPSIS, fontSize };
+    return lines.filter((l) => l.length > 0);
+  }
+
+  /**
+   * Sample the average background color from a 3-pixel-tall strip immediately
+   * above (or below if at the top) the text block in the rasterized canvas.
+   */
+  private sampleBackgroundColor(
+    ctx: { getImageData: (x: number, y: number, w: number, h: number) => { data: Uint8ClampedArray } },
+    blockX: number,
+    blockY: number,
+    blockWidth: number,
+    blockHeight: number,
+    scale: number,
+    canvasHeight: number,
+  ): { r: number; g: number; b: number } {
+    const px = Math.floor(blockX * scale);
+    const py = Math.floor(blockY * scale);
+    const pw = Math.max(1, Math.floor(blockWidth * scale));
+    const stripH = Math.max(1, Math.ceil(3 * scale));
+
+    // Try sampling above the block; fall back to below if at top of page
+    let sampleY = py - stripH;
+    if (sampleY < 0) {
+      sampleY = py + Math.ceil(blockHeight * scale);
     }
 
-    return { text, fontSize };
+    if (sampleY < 0 || sampleY >= canvasHeight || pw <= 0) {
+      return { r: 255, g: 255, b: 255 };
+    }
+
+    const actualH = Math.min(stripH, canvasHeight - sampleY);
+    if (actualH <= 0) return { r: 255, g: 255, b: 255 };
+
+    const imageData = ctx.getImageData(px, sampleY, pw, actualH);
+    const data = imageData.data;
+
+    let totalR = 0, totalG = 0, totalB = 0, count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      totalR += data[i];
+      totalG += data[i + 1];
+      totalB += data[i + 2];
+      count++;
+    }
+
+    if (count === 0) return { r: 255, g: 255, b: 255 };
+    return {
+      r: Math.round(totalR / count),
+      g: Math.round(totalG / count),
+      b: Math.round(totalB / count),
+    };
   }
 
   async overlay(
@@ -160,14 +215,12 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       blocksByPage.get(block.page)!.push(block);
     }
 
-    // Only render pages that actually have translated blocks — avoids rasterizing
-    // the entire PDF when --pages selects a small subset of a large document.
+    // Only render pages that actually have translated blocks
     const usedPages = new Set(blocksByPage.keys());
-    // usedPages가 비어 있으면 렌더링할 페이지가 없으므로 빈 Map을 직접 사용
     const pageImages: Map<number, RenderedPage> =
       usedPages.size > 0 ? await renderPdfPages(originalBuffer, usedPages) : new Map();
 
-    // Load original PDF for copying pages that need no overlay.
+    // Load original PDF for copying pages that need no overlay
     let srcDoc: PDFDocument;
     try {
       srcDoc = await PDFDocument.load(originalBuffer);
@@ -178,11 +231,9 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     }
     const totalPages = srcDoc.getPageCount();
 
-    // Build a new PDF document.
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
 
-    // Load font (bytes cached per path to avoid repeated 16MB disk reads)
     const fontPath = options?.fontPath ?? DEFAULT_FONT_PATH;
     let customFont: Awaited<ReturnType<PDFDocument['embedFont']>> | null = null;
     try {
@@ -194,13 +245,19 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     const fallbackFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const font = customFont ?? fallbackFont;
 
-    // For each page: if it has overlay blocks, rasterize + overlay; otherwise copy as-is.
+    const measureWidth = (t: string, size: number): number => {
+      try {
+        return font.widthOfTextAtSize(t, size);
+      } catch {
+        return t.length * size * 0.6;
+      }
+    };
+
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       const rendered = pageImages.get(pageNum);
 
       if (!rendered) {
         // No translated blocks on this page — copy directly from the original PDF
-        // without rasterization, preserving vector quality and saving memory.
         try {
           const [copiedPage] = await pdfDoc.copyPages(srcDoc, [pageNum - 1]);
           pdfDoc.addPage(copiedPage);
@@ -213,10 +270,66 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       }
 
       const { pngBuffer, width, height } = rendered;
+      const pageBlocks = blocksByPage.get(pageNum) ?? [];
+
+      // Pre-compute wrapped lines for all blocks (needed for fill height calculation)
+      const fontSize = (block: TextBlock) => Math.max(block.fontSize, 6);
+      const blockLines = new Map<TextBlock, string[]>();
+      for (const block of pageBlocks) {
+        const lines = this.wrapText(
+          block.translatedText!,
+          block.width,
+          fontSize(block),
+          measureWidth,
+        );
+        blockLines.set(block, lines);
+      }
+
+      // Modify the rasterized page: sample background and fill each text area
+      let modifiedPngBuffer: Buffer;
+      try {
+        const img = await loadImage(pngBuffer);
+        const canvas = createCanvas(img.width, img.height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img as Parameters<typeof ctx.drawImage>[0], 0, 0);
+        const scale = img.width / width;
+
+        for (const block of pageBlocks) {
+          const lines = blockLines.get(block)!;
+          const fs = fontSize(block);
+          const lineHeight = fs * LINE_HEIGHT_RATIO;
+          const totalTextH = lines.length * lineHeight;
+          const fillH = Math.max(block.height, totalTextH) + fs * DESCENDER_PAD_RATIO;
+
+          const { r, g, b } = this.sampleBackgroundColor(
+            ctx,
+            block.x,
+            block.y,
+            block.width,
+            block.height,
+            scale,
+            img.height,
+          );
+
+          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          ctx.fillRect(
+            Math.floor(block.x * scale),
+            Math.floor(block.y * scale),
+            Math.ceil(block.width * scale),
+            Math.ceil(fillH * scale),
+          );
+        }
+
+        modifiedPngBuffer = canvas.toBuffer('image/png') as unknown as Buffer;
+      } catch (err) {
+        throw new InternalServerErrorException(
+          `페이지 ${pageNum} 배경 처리 실패: ${(err as Error).message}`,
+        );
+      }
 
       let pngImage;
       try {
-        pngImage = await pdfDoc.embedPng(pngBuffer);
+        pngImage = await pdfDoc.embedPng(modifiedPngBuffer);
       } catch (err) {
         throw new InternalServerErrorException(
           `페이지 ${pageNum} 이미지 임베딩 실패: ${(err as Error).message}`,
@@ -224,58 +337,34 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
       }
 
       const page = pdfDoc.addPage([width, height]);
-
-      // Draw the rendered page image as full-page background
       page.drawImage(pngImage, { x: 0, y: 0, width, height });
 
-      // Overlay translated text blocks
-      for (const block of blocksByPage.get(pageNum) ?? []) {
+      // Draw translated text at original font size with line wrapping
+      for (const block of pageBlocks) {
+        const lines = blockLines.get(block)!;
+        if (!lines.length) continue;
+
         // pdf-lib uses bottom-left origin; pdfjs extraction uses top-left origin
         const pdfY = height - block.y - block.height;
+        const fs = fontSize(block);
+        const lineHeight = fs * LINE_HEIGHT_RATIO;
 
-        // Cover original text in the rasterized image with a white box.
-        // Descenders (g, p, y) extend below the baseline, so pad downward.
-        const descenderPad = block.fontSize * DESCENDER_PAD_RATIO;
-        page.drawRectangle({
-          x: block.x,
-          y: pdfY - descenderPad,
-          width: block.width,
-          height: block.height + descenderPad,
-          color: rgb(1, 1, 1),
-          opacity: 1,
-        });
-
-        const measureWidth = (t: string, size: number): number => {
+        for (let i = 0; i < lines.length; i++) {
+          // Start from the top of the block, moving downward per line
+          const lineY = pdfY + block.height - fs - i * lineHeight;
           try {
-            return font.widthOfTextAtSize(t, size);
-          } catch {
-            return t.length * size * 0.6;
+            page.drawText(lines[i], {
+              x: block.x,
+              y: lineY,
+              size: fs,
+              font,
+              color: rgb(0, 0, 0),
+            });
+          } catch (err) {
+            this.logger.warn(
+              `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
-        };
-
-        const { text: fittedText, fontSize: fittedSize } = this.fitText(
-          block.translatedText!,
-          block.width,
-          block.fontSize,
-          measureWidth,
-        );
-
-        if (!fittedText) continue;
-
-        const yOffset = (block.height - fittedSize) / 2;
-
-        try {
-          page.drawText(fittedText, {
-            x: block.x,
-            y: pdfY + yOffset,
-            size: fittedSize,
-            font,
-            color: rgb(0, 0, 0),
-          });
-        } catch (err) {
-          this.logger.warn(
-            `블록 렌더링 실패 (page=${block.page}, x=${block.x}, y=${block.y}): ${err instanceof Error ? err.message : String(err)}`,
-          );
         }
       }
     }
