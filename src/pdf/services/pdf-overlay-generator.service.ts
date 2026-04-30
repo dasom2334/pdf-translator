@@ -123,6 +123,7 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     fontSize: number,
     measureWidth: (t: string, size: number) => number,
   ): string[] {
+    if (!text.trim()) return [];
     if (boxWidth <= 0) return [text];
 
     const lines: string[] = [];
@@ -164,7 +165,7 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
     scale: number,
     canvasHeight: number,
   ): { r: number; g: number; b: number } {
-    const px = Math.floor(blockX * scale);
+    const px = Math.max(0, Math.floor(blockX * scale));
     const py = Math.floor(blockY * scale);
     const pw = Math.max(1, Math.floor(blockWidth * scale));
     const stripH = Math.max(1, Math.ceil(3 * scale));
@@ -352,6 +353,12 @@ export class PdfOverlayGeneratorService implements IPdfOverlayGenerator {
         for (let i = 0; i < lines.length; i++) {
           // Start from the top of the block, moving downward per line
           const lineY = pdfY + block.height - fs - i * lineHeight;
+          if (lineY < 0) {
+            this.logger.warn(
+              `줄 ${i + 1} Y좌표(${lineY.toFixed(1)})가 페이지 경계 밖 — 생략 (page=${block.page}, x=${block.x}, y=${block.y})`,
+            );
+            continue;
+          }
           try {
             page.drawText(lines[i], {
               x: block.x,

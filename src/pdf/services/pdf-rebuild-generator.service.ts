@@ -45,6 +45,7 @@ export class PdfRebuildGeneratorService implements IPdfRebuildGenerator {
     fontSize: number,
     measureWidth: (t: string, size: number) => number,
   ): string[] {
+    if (!text.trim()) return [];
     if (boxWidth <= 0) return [text];
 
     const lines: string[] = [];
